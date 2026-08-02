@@ -1,5 +1,5 @@
 {
-  "name": "what-the-node",
+  "name": "jstop",
   "version": "0.1.0",
   "type": "module",
   "private": false,
@@ -7,10 +7,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TODO-set-before-publish/what-the-node.git"
+    "url": "git+https://github.com/rushi/jstop.git"
   },
   "bin": {
-    "what-the-node": "./dist/cli.mjs"
+    "jstop": "./dist/cli.mjs"
   },
   "files": [
     "dist",

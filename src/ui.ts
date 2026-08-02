@@ -382,7 +382,7 @@ const showDetail = async (display: DisplayEntry, options: DisplayOptions = {}): 
 };
 
 export const runInteractiveList = async (entries: DisplayEntry[], options: DisplayOptions = {}): Promise<void> => {
-    clack.intro("what-the-node");
+    clack.intro("jstop");
 
     if (entries.length === 0) {
         clack.outro("No processes found.");

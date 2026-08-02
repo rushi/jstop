@@ -1,4 +1,4 @@
-# what-the-node
+# jstop
 
 `ps -ef | grep node` but useful. Lists the real node, bun, and deno processes running on your machine, filters out Electron/desktop-app noise (VS Code helpers, Slack, etc.), trims unreadable paths, and tells you, where possible, which app or project spawned each one.
 
@@ -7,7 +7,7 @@
 Try it without installing:
 
 ```sh
-npx what-the-node
+npx jstop
 ```
 
 This opens an interactive, searchable list of every real node/bun/deno process on your machine. Type to filter, pick one to see its full command, working directory, and (best-effort) launching app, with an option to kill it.
@@ -15,14 +15,14 @@ This opens an interactive, searchable list of every real node/bun/deno process o
 Verify it works:
 
 ```sh
-npx what-the-node --plain
+npx jstop --plain
 ```
 
 This prints a static list instead of the interactive UI, useful for confirming output or piping into another tool.
 
 ## Table of Contents
 
-- [what-the-node](#what-the-node)
+- [jstop](#jstop)
     - [Usage](#usage)
     - [Table of Contents](#table-of-contents)
     - [Installation](#installation)
@@ -34,13 +34,13 @@ This prints a static list instead of the interactive UI, useful for confirming o
 ## Installation
 
 ```sh
-npm install -g what-the-node
+npm install -g jstop
 ```
 
 Then run it directly:
 
 ```sh
-what-the-node
+jstop
 ```
 
 Requires Node.js 20 or later.
@@ -59,10 +59,10 @@ All options are CLI flags, no config file needed.
 Examples:
 
 ```sh
-what-the-node --verbose
-what-the-node --filter my-project
-what-the-node --all
-what-the-node --plain --filter mcp
+jstop --verbose
+jstop --filter my-project
+jstop --all
+jstop --plain --filter mcp
 ```
 
 ## Features

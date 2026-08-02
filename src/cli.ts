@@ -10,7 +10,7 @@ import { filterEntries, hideChildProcesses, printPlainList, runInteractiveList }
 const program = new Command();
 
 program
-    .name("what-the-node")
+    .name("jstop")
     .description("Find and inspect real node/bun/deno processes running on your machine, with source attribution.")
     .version("0.1.0")
     .option("-v, --verbose", "show full command including flags")
