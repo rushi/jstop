@@ -3,3 +3,5 @@ node_modules/
 *.log
 docs
 dist/
+.superpowers/
+.claude

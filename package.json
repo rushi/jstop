@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "type": "module",
   "private": false,
-  "description": "See which node processes are actually running on your machine — filters out Electron/desktop-app noise and shows where each one came from.",
+  "description": "See which node/bun/deno processes are actually running on your machine — filters out Electron/desktop-app noise and shows where each one came from.",
   "license": "MIT",
   "repository": {
     "type": "git",
