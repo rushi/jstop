@@ -7,7 +7,7 @@ import {
     collapsePathBinaries,
     relativizeToCwd,
     stripFlags,
-    trimHome,
+    trimHomeInCommand,
     truncateCommandPath,
     truncateProjectPath,
 } from "./path-trim.js";
@@ -39,6 +39,7 @@ const COLUMN_GAP_WIDTH = 2;
 
 // Command lines can carry raw escape sequences (e.g. from `node -e` inline scripts); rendering
 // them unfiltered would let a process repaint the terminal.
+// eslint-disable-next-line no-control-regex -- matching control chars is the point, not a mistake
 const CONTROL_CHARACTER_PATTERN = /[\x00-\x1f\x7f]/g;
 
 // On macOS, ps-list/ps render an embedded control byte as the literal 4-character sequence
@@ -51,6 +52,7 @@ const MULTIPLE_SPACES_PATTERN = / {2,}/g;
 // Chalk's SGR ("Select Graphic Rendition") codes are the only ANSI sequences this codebase ever
 // emits (via chalk.dim/chalk.gray/etc.) - stripping just that pattern is enough to recover the
 // on-screen width of a colored cell for column alignment purposes.
+// eslint-disable-next-line no-control-regex -- matching the ANSI escape byte is the point
 const ANSI_SGR_PATTERN = /\x1b\[[0-9;]*m/g;
 
 export const visibleLength = (value: string): number => value.replace(ANSI_SGR_PATTERN, "").length;
@@ -99,7 +101,6 @@ const HEADER_LABELS = { pid: "PID", tag: "TAG", project: "PROJECT", command: "CO
 // DEFAULT_TERMINAL_WIDTH when there's no TTY to measure (piped/non-TTY output).
 export const computeColumnWidths = (
     entries: DisplayEntry[],
-    _options: DisplayOptions = {},
     terminalWidth: number = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH,
 ): ColumnWidths => {
     const pidWidths = entries.map((display) => String(display.entry.pid).length);
@@ -121,6 +122,9 @@ export const computeColumnWidths = (
 export const formatHeaderRow = (widths: ColumnWidths): string =>
     `${HEADER_LABELS.pid.padEnd(widths.pid)}  ${HEADER_LABELS.tag.padEnd(widths.tag)}  ${HEADER_LABELS.project.padEnd(widths.project)}  ${HEADER_LABELS.command}`;
 
+const locationOf = (display: DisplayEntry, fallback = "unknown source"): string =>
+    display.source.cwd ?? display.source.launcher ?? fallback;
+
 export const groupByProject = (entries: DisplayEntry[]): DisplayEntry[][] => {
     const order: string[] = [];
     const clusters = new Map<string, DisplayEntry[]>();
@@ -129,7 +133,7 @@ export const groupByProject = (entries: DisplayEntry[]): DisplayEntry[][] => {
         // An entry with neither cwd nor launcher has nothing identifying it as sharing a project
         // with any other such entry, so it's keyed by its own (always-unique) pid instead of a
         // shared "unknown source" literal - otherwise unrelated processes would wrongly cluster.
-        const key = display.source.cwd ?? display.source.launcher ?? `unknown:${display.entry.pid}`;
+        const key = locationOf(display, `unknown:${display.entry.pid}`);
         const cluster = clusters.get(key);
 
         if (cluster) {
@@ -149,7 +153,7 @@ export const groupByProject = (entries: DisplayEntry[]): DisplayEntry[][] => {
 export const matchesKeyword = (display: DisplayEntry, keyword: string): boolean => {
     const needle = keyword.toLowerCase();
     const command = cleanCommand(display, { verbose: true }).toLowerCase();
-    const location = (display.source.cwd ?? display.source.launcher ?? "").toLowerCase();
+    const location = locationOf(display, "").toLowerCase();
 
     return command.includes(needle) || location.includes(needle);
 };
@@ -229,12 +233,6 @@ const describeKillError = (error: unknown): string => {
     return error instanceof Error ? error.message : String(error);
 };
 
-const trimHomeInCommand = (command: string): string =>
-    command
-        .split(" ")
-        .map((token) => trimHome(token))
-        .join(" ");
-
 const cleanCommand = (display: DisplayEntry, options: DisplayOptions = {}): string => {
     const raw = display.entry.cmd ?? display.entry.name;
     const stripped = raw.replace(CONTROL_CHARACTER_PATTERN, " ").replace(OCTAL_ESCAPE_PATTERN, " ").trim();
@@ -295,8 +293,6 @@ const colorizeTag = (tag: Tag | null): string => {
 const indentCommand = (commandCell: string, depth: number): string =>
     depth > 0 ? `${"  ".repeat(depth - 1)}${chalk.dim("└─")} ${commandCell}` : commandCell;
 
-const locationOf = (display: DisplayEntry): string => display.source.cwd ?? display.source.launcher ?? "unknown source";
-
 export const formatListLine = (
     display: DisplayEntry,
     widths: ColumnWidths,
@@ -305,15 +301,16 @@ export const formatListLine = (
     parent: DisplayEntry | null = null,
 ): string => {
     const location = locationOf(display);
+    const tag = resolveTag(display.entry);
     // A child sharing its parent's tag/project (the common case - inherited from the same
     // launch) repeats information the parent row directly above it already shows, so it's
     // blanked out here to keep the eye on what's actually different: the child's own command.
     const sameAsParent = depth > 0 && parent !== null;
-    const showTag = !(sameAsParent && resolveTag(display.entry) === resolveTag(parent.entry));
+    const showTag = !(sameAsParent && tag === resolveTag(parent.entry));
     const showProject = !(sameAsParent && location === locationOf(parent));
 
     const pidCell = padVisible(chalk.dim(String(display.entry.pid)), widths.pid);
-    const tagCell = padVisible(showTag ? colorizeTag(resolveTag(display.entry)) : "", widths.tag);
+    const tagCell = padVisible(showTag ? colorizeTag(tag) : "", widths.tag);
     const projectCell = padVisible(
         showProject ? chalk.gray(truncateProjectPath(location, widths.project)) : "",
         widths.project,
@@ -394,7 +391,14 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
 
     const orderedEntries = groupByProject(entries).flat();
     const nestedEntries = nestChildren(orderedEntries);
-    const widths = computeColumnWidths(orderedEntries, options);
+    const widths = computeColumnWidths(orderedEntries);
+    // nestedEntries/widths never change across loop iterations (no filter/resize happens between
+    // process detail views), so the option list is built once rather than reformatted every time
+    // the user returns from showDetail.
+    const autocompleteOptions = nestedEntries.map(({ display, depth, parent }) => ({
+        value: display.entry.pid,
+        label: formatListLine(display, widths, options, depth, parent),
+    }));
 
     for (;;) {
         // autocomplete (rather than select) gives a built-in "type to filter" search box, so a
@@ -407,10 +411,7 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
             // here as literal spaces for the header's column labels to line up with the rows below.
             message: `Found ${entries.length} process${entries.length === 1 ? "" : "es"}\n     ${formatHeaderRow(widths)}`,
             placeholder: "Type to filter…",
-            options: nestedEntries.map(({ display, depth, parent }) => ({
-                value: display.entry.pid,
-                label: formatListLine(display, widths, options, depth, parent),
-            })),
+            options: autocompleteOptions,
         });
 
         if (clack.isCancel(selected)) {
@@ -439,7 +440,7 @@ export const printPlainList = (entries: DisplayEntry[], options: DisplayOptions 
     // row after them out of alignment with the PROJECT column.
     const renderOptions: DisplayOptions = { ...options, noTruncate: true };
     const clusters = groupByProject(entries);
-    const widths = computeColumnWidths(entries, renderOptions);
+    const widths = computeColumnWidths(entries);
     console.log(formatHeaderRow(widths));
 
     clusters.forEach((cluster, index) => {

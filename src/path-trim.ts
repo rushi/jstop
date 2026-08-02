@@ -9,6 +9,10 @@ export const trimHome = (pathStr: string, home: string = os.homedir()): string =
     return pathStr;
 };
 
+const mapTokens = (cmdStr: string, fn: (token: string) => string): string => cmdStr.split(" ").map(fn).join(" ");
+
+export const trimHomeInCommand = (command: string): string => mapTokens(command, (token) => trimHome(token));
+
 // The process's cwd is already shown alongside the command (see formatListLine's PROJECT
 // column), so any command token that lives inside that cwd is redundant to spell out in full -
 // collapsing it to "." makes clear the process runs from that folder without repeating the path
@@ -16,15 +20,12 @@ export const trimHome = (pathStr: string, home: string = os.homedir()): string =
 export const relativizeToCwd = (cmdStr: string, cwd: string | null): string => {
     if (!cwd) return cmdStr;
 
-    return cmdStr
-        .split(" ")
-        .map((token) => {
-            if (token === cwd) return ".";
-            if (token.startsWith(`${cwd}/`)) return `.${token.slice(cwd.length)}`;
+    return mapTokens(cmdStr, (token) => {
+        if (token === cwd) return ".";
+        if (token.startsWith(`${cwd}/`)) return `.${token.slice(cwd.length)}`;
 
-            return token;
-        })
-        .join(" ");
+        return token;
+    });
 };
 
 const PNPM_STORE_HASH_PATTERN = /(\.pnpm\/[^/]+?@\d+\.\d+\.\d+(?:-[\w.]+)?)_[^/]+(?=\/)/g;
@@ -36,7 +37,7 @@ export const collapsePackageStorePath = (pathStr: string): string =>
 const ABSOLUTE_PATH_PATTERN = /^([a-zA-Z]:\\|\/)/;
 
 // A token is "PATH-resolvable" when its directory exactly matches one of the directories on
-// $PATH — the same rule the shell itself uses to find a binary by bare name. Collapsing those
+// $PATH (the same rule the shell itself uses to find a binary by bare name). Collapsing those
 // tokens to their basename mirrors what the user would have typed at a prompt.
 export const collapsePathBinaries = (
     cmdStr: string,
@@ -44,19 +45,16 @@ export const collapsePathBinaries = (
 ): string => {
     const normalizedPathDirs = new Set(pathDirs.map((dir) => path.normalize(dir).replace(/[\\/]+$/, "")));
 
-    return cmdStr
-        .split(" ")
-        .map((token) => {
-            if (!ABSOLUTE_PATH_PATTERN.test(token)) return token;
+    return mapTokens(cmdStr, (token) => {
+        if (!ABSOLUTE_PATH_PATTERN.test(token)) return token;
 
-            const dir = path.normalize(path.dirname(token)).replace(/[\\/]+$/, "");
-            return normalizedPathDirs.has(dir) ? path.basename(token) : token;
-        })
-        .join(" ");
+        const dir = path.normalize(path.dirname(token)).replace(/[\\/]+$/, "");
+        return normalizedPathDirs.has(dir) ? path.basename(token) : token;
+    });
 };
 
-// Matches a leading "-" or "--" followed by a letter, e.g. "--host", "-v" — a bare negative
-// number like "-1" does not match, since digits aren't letters.
+// Matches a leading "-" or "--" followed by a letter, e.g. "--host", "-v" (a bare negative
+// number like "-1" does not match, since digits aren't letters).
 const FLAG_TOKEN_PATTERN = /^--?[a-zA-Z]/;
 
 // An "entry point"-looking token is kept even when it directly follows a flag, since it's more
@@ -71,12 +69,12 @@ const looksLikeEntryPoint = (token: string): boolean =>
 // A flag's value (e.g. "3000" following "--port") has no reliable way to be distinguished from
 // a positional argument without knowing the specific CLI's argument schema. As a heuristic, the
 // token immediately following a stripped flag is also stripped, unless it looks like an entry
-// point (ends in .js/.mjs/.cjs/.ts, or contains a "/") — that keeps `--inspect app.js` readable
+// point (ends in .js/.mjs/.cjs/.ts, or contains a "/"); that keeps `--inspect app.js` readable
 // while dropping `--port 3000`, `--host 0.0.0.0`, etc.
 //
 // Known false-negative, accepted as a tradeoff: a boolean flag with no value (e.g. `--silent`)
-// still eats the next token even though it isn't that flag's argument — `npm run --silent build`
-// loses "build". Fixing this would require per-CLI knowledge of which flags take values, which
+// still eats the next token even though it isn't that flag's argument (`npm run --silent build`
+// loses "build"). Fixing this would require per-CLI knowledge of which flags take values, which
 // is out of scope; see the pinned test for this exact case.
 export const stripFlags = (cmdStr: string): string => {
     const tokens = cmdStr.split(/\s+/).filter((token) => token.length > 0);
@@ -99,19 +97,26 @@ export const stripFlags = (cmdStr: string): string => {
     return kept.join(" ");
 };
 
-export const truncateProjectPath = (pathStr: string, maxWidth: number): string => {
-    if (pathStr.length <= maxWidth) return pathStr;
-
-    const segments = pathStr.split("/");
-    const lastIndex = segments.length - 1;
-
-    for (let i = lastIndex - 1; i > 0; i -= 1) {
+// Walks `segments` backward starting from `segments.length - 2`, collapsing each non-empty
+// segment to its first character, until `fits` is satisfied - shrinking the middle of a path
+// while always keeping its last segment intact. `minIndex` also keeps the first segment (index 0)
+// untouched when set to 1. Mutates and returns `segments` in place.
+const shrinkSegmentsToFit = (segments: string[], fits: (segments: string[]) => boolean, minIndex = 0): string[] => {
+    for (let i = segments.length - 2; i >= minIndex; i -= 1) {
         const segment = segments[i];
         if (segment === undefined || segment.length === 0) continue;
 
         segments[i] = segment[0] as string;
-        if (segments.join("/").length <= maxWidth) break;
+        if (fits(segments)) break;
     }
+
+    return segments;
+};
+
+export const truncateProjectPath = (pathStr: string, maxWidth: number): string => {
+    if (pathStr.length <= maxWidth) return pathStr;
+
+    const segments = shrinkSegmentsToFit(pathStr.split("/"), (segs) => segs.join("/").length <= maxWidth, 1);
 
     return segments.join("/");
 };
@@ -146,15 +151,10 @@ export const truncateCommandPath = (pathStr: string, maxWidth: number): string =
             : nodeModulesIndex + 1;
 
     const anchor = segments.slice(nodeModulesIndex + 1, packageEnd + 1);
-    const tail = segments.slice(packageEnd + 1);
-
-    for (let i = tail.length - 2; i >= 0; i -= 1) {
-        const segment = tail[i];
-        if (segment === undefined || segment.length === 0) continue;
-
-        tail[i] = segment[0] as string;
-        if (buildEllipsizedPackagePath(anchor, tail).length <= maxWidth) break;
-    }
+    const tail = shrinkSegmentsToFit(
+        segments.slice(packageEnd + 1),
+        (segs) => buildEllipsizedPackagePath(anchor, segs).length <= maxWidth,
+    );
 
     return buildEllipsizedPackagePath(anchor, tail);
 };

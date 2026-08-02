@@ -1,9 +1,24 @@
 import os from "node:os";
 import chalk from "chalk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { computeColumnWidths, filterEntries, formatCommandCell, formatHeaderRow, formatListLine, groupByProject, hideChildProcesses, matchesKeyword, nestChildren, padVisible, printPlainList, resolveTag, visibleLength } from "./ui.js";
+import {
+    computeColumnWidths,
+    filterEntries,
+    formatCommandCell,
+    formatHeaderRow,
+    formatListLine,
+    groupByProject,
+    hideChildProcesses,
+    matchesKeyword,
+    nestChildren,
+    padVisible,
+    printPlainList,
+    resolveTag,
+    visibleLength,
+} from "./ui.js";
 import type { DisplayEntry } from "./ui.js";
 
+// eslint-disable-next-line no-control-regex -- matching the ANSI escape byte is the point
 const stripAnsi = (value: string): string => value.replace(/\x1b\[[0-9;]*m/g, "");
 
 describe("visibleLength", () => {
@@ -126,8 +141,7 @@ describe("formatCommandCell", () => {
     });
 
     it("keeps the scoped package name (node_modules/@scope/name) legible in a long command, not just the trailing basename", () => {
-        const longPath =
-            "~/Sites/work/xola/internal-tools/apps/athena/node_modules/@rushiv/expect-cli/dist/index.js";
+        const longPath = "~/Sites/work/xola/internal-tools/apps/athena/node_modules/@rushiv/expect-cli/dist/index.js";
         const display: DisplayEntry = {
             entry: { pid: 40, ppid: 1, name: "node", cmd: `node ${longPath} mcp` },
             source: { cwd: null, launcher: null },
@@ -139,7 +153,7 @@ describe("formatCommandCell", () => {
 
 describe("computeColumnWidths", () => {
     it("returns header label widths for an empty entry list, and project/command budgets from the given terminal width", () => {
-        expect(computeColumnWidths([], {}, 100)).toEqual({ pid: 3, tag: 3, project: 20, command: 68 });
+        expect(computeColumnWidths([], 100)).toEqual({ pid: 3, tag: 3, project: 20, command: 68 });
     });
 
     it("widens the pid column to fit the longest pid", () => {
@@ -160,17 +174,17 @@ describe("computeColumnWidths", () => {
     });
 
     it("gives both the project and command columns more room on a wider terminal", () => {
-        const widths = computeColumnWidths([], {}, 200);
+        const widths = computeColumnWidths([], 200);
         expect(widths.project).toBe(40);
         expect(widths.command).toBe(148);
     });
 
     it("never shrinks the project column below its minimum floor on a narrow terminal", () => {
-        expect(computeColumnWidths([], {}, 40).project).toBe(15);
+        expect(computeColumnWidths([], 40).project).toBe(15);
     });
 
     it("never shrinks the command column below the minimum floor on a narrow terminal", () => {
-        expect(computeColumnWidths([], {}, 40).command).toBe(20);
+        expect(computeColumnWidths([], 40).command).toBe(20);
     });
 
     it("falls back to the default terminal width when no terminal width is given (e.g. non-TTY output)", () => {
@@ -191,7 +205,7 @@ describe("formatListLine", () => {
     // and have enough command-column headroom to stay focused on what each test actually
     // exercises rather than truncation. Dedicated tests below exercise the truncation budget
     // itself.
-    const widthsFor = (entries: DisplayEntry[]) => computeColumnWidths(entries, {}, 200);
+    const widthsFor = (entries: DisplayEntry[]) => computeColumnWidths(entries, 200);
 
     it("renders pid, tag, command, and project as separate columns", () => {
         const display: DisplayEntry = {
@@ -381,7 +395,7 @@ describe("formatListLine", () => {
             entry: { pid: 111, ppid: 1, name: "node", cmd: `node ${"a".repeat(500)}` },
             source: { cwd: null, launcher: null },
         };
-        const widths = computeColumnWidths([display], { verbose: true });
+        const widths = computeColumnWidths([display]);
         const nonVerboseWidths = widthsFor([display]);
         const nonVerboseLine = formatListLine(display, nonVerboseWidths);
         const verboseLine = formatListLine(display, widths, { verbose: true });
@@ -417,7 +431,7 @@ describe("formatListLine", () => {
             },
             source: { cwd: null, launcher: null },
         };
-        const widths = computeColumnWidths([display], { verbose: true });
+        const widths = computeColumnWidths([display]);
         const line = formatListLine(display, widths, { verbose: true });
         expect(line).not.toContain("\\012");
         expect(line).toContain("node -e const fs = require('fs'); const parentPid = 1;");
@@ -569,7 +583,7 @@ describe("formatListLine", () => {
             },
             source: { cwd: null, launcher: null },
         };
-        const widths = computeColumnWidths([display], { verbose: true });
+        const widths = computeColumnWidths([display]);
         const line = formatListLine(display, widths, { verbose: true });
         expect(line).toContain("node pnpx @rushiv/expect-cli@latest mcp --host 0.0.0.0");
     });
@@ -615,10 +629,7 @@ describe("groupByProject", () => {
         const b1: DisplayEntry = { entry: { pid: 2, ppid: 1, name: "node" }, source: { cwd: "~/b", launcher: null } };
         const a2: DisplayEntry = { entry: { pid: 3, ppid: 1, name: "node" }, source: { cwd: "~/a", launcher: null } };
 
-        expect(groupByProject([a1, b1, a2])).toEqual([
-            [a1, a2],
-            [b1],
-        ]);
+        expect(groupByProject([a1, b1, a2])).toEqual([[a1, a2], [b1]]);
     });
 
     it("keeps two unknown-source entries in separate single-entry clusters", () => {
@@ -646,10 +657,7 @@ describe("groupByProject", () => {
             source: { cwd: null, launcher: "bash (pid 2)" },
         };
 
-        expect(groupByProject([l1, other, l2])).toEqual([
-            [l1, l2],
-            [other],
-        ]);
+        expect(groupByProject([l1, other, l2])).toEqual([[l1, l2], [other]]);
     });
 });
 

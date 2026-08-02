@@ -10,7 +10,7 @@
     "url": "git+https://github.com/TODO-set-before-publish/what-the-node.git"
   },
   "bin": {
-    "what-the-node": "./dist/cli.js"
+    "what-the-node": "./dist/cli.mjs"
   },
   "files": [
     "dist",
@@ -18,32 +18,32 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=20"
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
-    "lint": "eslint .",
-    "format": "prettier --write .",
+    "lint": "eslint --fix src",
+    "format": "prettier --write -l src",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "build": "tsup src/cli.ts --format esm --clean && chmod +x dist/cli.js",
+    "build": "tsdown src/cli.ts --format esm --clean",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@clack/prompts": "^1.7.0",
-    "chalk": "^6.0.0",
-    "commander": "^15.0.0",
-    "execa": "^10.0.1",
+    "chalk": "^5.6.2",
+    "commander": "^11.1.0",
+    "execa": "^8.0.1",
     "ps-list": "^9.0.0"
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "^4.7.1",
     "@types/node": "^26.1.2",
     "@xola/jslint": "^4.0.1",
-    "eslint": "^10.8.0",
+    "eslint": "^9.39.5",
     "prettier": "^3.9.6",
-    "tsup": "^8.5.1",
+    "tsdown": "^0.22.14",
     "tsx": "^4.23.1",
     "type-fest": "^5.8.0",
     "typescript": "^5.9.3",

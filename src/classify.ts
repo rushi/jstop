@@ -42,24 +42,22 @@ const expectedNamesFor = (platform: NodeJS.Platform): string[] =>
 
 export type Runtime = "node" | "bun" | "deno";
 
+const runtimeFromBinary = (binary: string | null, expectedNames: string[]): Runtime | null => {
+    if (!binary) return null;
+
+    const matchedIndex = expectedNames.indexOf(basename(binary).toLowerCase());
+    return matchedIndex === -1 ? null : (EXPECTED_RUNTIME_NAMES[matchedIndex] as Runtime);
+};
+
 // Runs the same candidate-resolution/basename-matching logic isRealNodeProcess always relied on,
 // but surfaces which specific runtime matched instead of collapsing all three down to a boolean
 // - the UI wants to tag bun/deno processes distinctly from the (default, uncalled-out) node case.
 export const detectRuntime = (entry: ProcessEntry, platform: NodeJS.Platform = process.platform): Runtime | null => {
     const expectedNames = expectedNamesFor(platform);
-    const binary = pickBinaryCandidate(entry, expectedNames);
-
-    if (!binary) return null;
-
-    const matchedIndex = expectedNames.indexOf(basename(binary).toLowerCase());
-    if (matchedIndex === -1) return null;
-
-    return EXPECTED_RUNTIME_NAMES[matchedIndex] as Runtime;
+    return runtimeFromBinary(pickBinaryCandidate(entry, expectedNames), expectedNames);
 };
 
-const isBlocklisted = (entry: ProcessEntry, platform: NodeJS.Platform): boolean => {
-    const expectedNames = expectedNamesFor(platform);
-    const binary = pickBinaryCandidate(entry, expectedNames);
+const isBlocklisted = (entry: ProcessEntry, binary: string | null, expectedNames: string[]): boolean => {
     const cmdBinaryPrefix = entry.cmd ? extractCmdBinaryPrefix(entry.cmd, expectedNames) : "";
 
     // The blocklist always scans the resolved binary, the process name, the raw path, and the
@@ -69,8 +67,12 @@ const isBlocklisted = (entry: ProcessEntry, platform: NodeJS.Platform): boolean 
     return BLOCKLIST_MARKERS.some((marker) => haystack.includes(marker));
 };
 
-export const isRealNodeProcess = (entry: ProcessEntry, platform: NodeJS.Platform = process.platform): boolean =>
-    detectRuntime(entry, platform) !== null && !isBlocklisted(entry, platform);
+export const isRealNodeProcess = (entry: ProcessEntry, platform: NodeJS.Platform = process.platform): boolean => {
+    const expectedNames = expectedNamesFor(platform);
+    const binary = pickBinaryCandidate(entry, expectedNames);
+
+    return runtimeFromBinary(binary, expectedNames) !== null && !isBlocklisted(entry, binary, expectedNames);
+};
 
 // A whole-word, case-insensitive match on "mcp" - not a substring match - so a real MCP server
 // invocation (a bare "mcp" argument, e.g. `pnpx @foo/expect-cli mcp`) is flagged while incidental

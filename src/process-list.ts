@@ -1,16 +1,8 @@
 import psList from "ps-list";
+import type { ProcessDescriptor } from "ps-list";
 import type { ProcessEntry } from "./types.js";
 
-interface RawProcessEntry {
-    pid: number;
-    ppid: number;
-    name: string;
-    cmd?: string;
-    path?: string;
-    startTime?: Date;
-}
-
-export const normalizeProcessEntries = (raw: RawProcessEntry[]): ProcessEntry[] =>
+export const normalizeProcessEntries = (raw: ProcessDescriptor[]): ProcessEntry[] =>
     raw.map((proc) => ({
         pid: proc.pid,
         ppid: proc.ppid,

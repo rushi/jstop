@@ -1,3 +1,3 @@
 import config from "@xola/jslint/node";
 
-export default config;
+export default [{ ignores: ["dist"] }, ...config];
