@@ -320,7 +320,7 @@ export const formatListLine = (
     return `${pidCell}  ${tagCell}  ${projectCell}  ${commandCell}`;
 };
 
-const escalate = async (pid: number): Promise<void> => {
+const escalate = async (pid: number): Promise<boolean> => {
     const shouldEscalate = await clack.confirm({
         message: "Process still running. Send SIGKILL?",
         initialValue: false,
@@ -328,43 +328,49 @@ const escalate = async (pid: number): Promise<void> => {
 
     if (clack.isCancel(shouldEscalate) || !shouldEscalate) {
         clack.log.warn(`Left pid ${pid} running.`);
-        return;
+        return false;
     }
 
     try {
         const forced = await forceTerminateProcess(pid);
         if (forced.stillAlive) {
             clack.log.error(`pid ${pid} is still running after SIGKILL.`);
-            return;
+            return false;
         }
 
         clack.log.success(`Killed pid ${pid} with SIGKILL.`);
+        return true;
     } catch (error) {
         clack.log.error(`Could not force-kill pid ${pid}: ${describeKillError(error)}`);
+        return false;
     }
 };
 
-const attemptKill = async (pid: number): Promise<void> => {
+// Returns whether the pid was confirmed dead, so the caller can drop it from the displayed list
+// instead of leaving a killed process visible until the next full jstop invocation.
+const attemptKill = async (pid: number): Promise<boolean> => {
     try {
         const { stillAlive, canEscalate } = await terminateProcess(pid);
 
         if (!stillAlive) {
             clack.log.success(`Killed pid ${pid}.`);
-            return;
+            return true;
         }
 
         if (!canEscalate) {
             clack.log.error(`pid ${pid} is still running.`);
-            return;
+            return false;
         }
 
-        await escalate(pid);
+        return await escalate(pid);
     } catch (error) {
         clack.log.error(`Could not kill pid ${pid}: ${describeKillError(error)}`);
+        return false;
     }
 };
 
-const showDetail = async (display: DisplayEntry, options: DisplayOptions = {}): Promise<void> => {
+// Returns whether the process was confirmed killed, so runInteractiveList can drop it from the list.
+const showDetail = async (display: DisplayEntry, options: DisplayOptions = {}): Promise<boolean> => {
     clack.log.info(
         [
             `pid: ${display.entry.pid}`,
@@ -376,9 +382,9 @@ const showDetail = async (display: DisplayEntry, options: DisplayOptions = {}): 
     );
 
     const shouldKill = await clack.confirm({ message: "Kill this process?", initialValue: false });
-    if (clack.isCancel(shouldKill) || !shouldKill) return;
+    if (clack.isCancel(shouldKill) || !shouldKill) return false;
 
-    await attemptKill(display.entry.pid);
+    return attemptKill(display.entry.pid);
 };
 
 export const runInteractiveList = async (entries: DisplayEntry[], options: DisplayOptions = {}): Promise<void> => {
@@ -389,18 +395,19 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
         return;
     }
 
-    const orderedEntries = groupByProject(entries).flat();
-    const nestedEntries = nestChildren(orderedEntries);
-    const widths = computeColumnWidths(orderedEntries);
-    // nestedEntries/widths never change across loop iterations (no filter/resize happens between
-    // process detail views), so the option list is built once rather than reformatted every time
-    // the user returns from showDetail.
-    const autocompleteOptions = nestedEntries.map(({ display, depth, parent }) => ({
-        value: display.entry.pid,
-        label: formatListLine(display, widths, options, depth, parent),
-    }));
+    // Mutable across loop iterations: a confirmed kill removes the pid here so the list rebuilt
+    // below no longer shows it, instead of the stale pre-kill snapshot lingering until the next
+    // full jstop invocation.
+    let orderedEntries = groupByProject(entries).flat();
 
     for (;;) {
+        const nestedEntries = nestChildren(orderedEntries);
+        const widths = computeColumnWidths(orderedEntries);
+        const autocompleteOptions = nestedEntries.map(({ display, depth, parent }) => ({
+            value: display.entry.pid,
+            label: formatListLine(display, widths, options, depth, parent),
+        }));
+
         // autocomplete (rather than select) gives a built-in "type to filter" search box, so a
         // long process list can be narrowed live without any custom keypress handling.
         const selected = await clack.autocomplete({
@@ -409,7 +416,10 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
             // via wrapTextWithPrefix), autocomplete's message is interpolated raw - a continuation
             // line gets none of that prefix from clack - so all 5 characters have to be reproduced
             // here as literal spaces for the header's column labels to line up with the rows below.
-            message: `Found ${entries.length} process${entries.length === 1 ? "" : "es"}\n     ${formatHeaderRow(widths)}`,
+            // The footer hint line ("↑/↓ to select • Enter: confirm • Type: to search") is hardcoded
+            // inside @clack/prompts and isn't configurable, so the exit hint has to live in the
+            // message text instead - Esc/Ctrl+C are already wired up via clack.isCancel below.
+            message: `Found ${orderedEntries.length} process${orderedEntries.length === 1 ? "" : "es"} (Esc to exit)\n     ${formatHeaderRow(widths)}`,
             placeholder: "Type to filter…",
             options: autocompleteOptions,
         });
@@ -425,7 +435,14 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
             return;
         }
 
-        await showDetail(display, options);
+        const killed = await showDetail(display, options);
+        if (killed) {
+            orderedEntries = orderedEntries.filter((item) => item.entry.pid !== display.entry.pid);
+            if (orderedEntries.length === 0) {
+                clack.outro("No processes left.");
+                return;
+            }
+        }
     }
 };
 
