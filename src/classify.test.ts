@@ -67,6 +67,18 @@ describe("isRealNodeProcess", () => {
         expect(isRealNodeProcess(entry, "darwin")).toBe(true);
     });
 
+    it("accepts a node process when ps-list truncates both path and name at a space in the fnm install dir", () => {
+        const entry: ProcessEntry = {
+            pid: 10,
+            ppid: 0,
+            name: "Application",
+            path: "/Users/rushi/Library/Application",
+            cmd: "/Users/rushi/Library/Application Support/fnm/node-versions/v20.20.2/installation/bin/node /Users/rushi/.npm/_npx/abc/node_modules/@rushiv/expect-cli/dist/browser-mcp.js",
+        };
+        expect(isRealNodeProcess(entry, "darwin")).toBe(true);
+        expect(isMcpProcess(entry.cmd)).toBe(true);
+    });
+
     it("accepts a name-only entry on darwin when neither cmd nor path is available", () => {
         const entry: ProcessEntry = { pid: 8, ppid: 0, name: "node" };
         expect(isRealNodeProcess(entry, "darwin")).toBe(true);

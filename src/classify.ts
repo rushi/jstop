@@ -10,26 +10,11 @@ const basename = (filePath: string): string => filePath.split(/[\\/]/).pop() ?? 
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// ps-list reports an empty string (not undefined) when its best-effort path extraction fails,
-// and a cmd whose binary lives in a directory with spaces splits into a bogus argv0 token.
-// So try every candidate and keep the first whose basename actually looks like a runtime binary.
-const pickBinaryCandidate = (entry: ProcessEntry, expectedNames: string[]): string | null => {
-    const candidates = [entry.path, entry.cmd?.split(" ")[0], entry.name];
-
-    return (
-        candidates.find((candidate) => !!candidate && expectedNames.includes(basename(candidate).toLowerCase())) ?? null
-    );
-};
-
-// The naive `cmd.split(" ")[0]` used for candidate selection above can truncate a binary path at
-// a space inside a bundle name (e.g. "/Applications/Visual Studio Code.app/.../node ext.js" splits
-// into "/Applications/Visual"), so it never matches "node" and candidate selection correctly falls
-// through to `entry.name`. But that means the blocklist can no longer see the real binary path
-// through the resolved candidate alone - it has to look at the raw cmd string directly. Cutting the
-// raw cmd at the first whitespace-bounded occurrence of the expected binary name (rather than
-// scanning the entire cmd, arguments included) keeps legitimate cases working: a real node process
-// whose *arguments* happen to mention an Electron app's path (e.g. an MCP server passed its caller's
-// path via --host) must not be rejected just because that path shows up later in the string.
+// Cutting the raw cmd at the first whitespace-bounded occurrence of the expected binary name
+// (rather than scanning the entire cmd, arguments included) keeps legitimate cases working: a
+// real node process whose *arguments* happen to mention an Electron app's path (e.g. an MCP
+// server passed its caller's path via --host) must not be rejected just because that path shows
+// up later in the string.
 const extractCmdBinaryPrefix = (cmd: string, expectedNames: string[]): string => {
     const alternation = expectedNames.map(escapeRegExp).join("|");
     const match = new RegExp(`^.*?(?:${alternation})(?=\\s|$)`, "i").exec(cmd);
@@ -39,6 +24,21 @@ const extractCmdBinaryPrefix = (cmd: string, expectedNames: string[]): string =>
 
 const expectedNamesFor = (platform: NodeJS.Platform): string[] =>
     platform === "win32" ? EXPECTED_RUNTIME_NAMES.map((name) => `${name}.exe`) : EXPECTED_RUNTIME_NAMES;
+
+// ps-list reports an empty string (not undefined) when its best-effort path extraction fails,
+// and naively splitting cmd on the first space truncates a binary path that lives in a directory
+// with spaces (e.g. fnm installs under "~/Library/Application Support/fnm/...") into a bogus
+// argv0 token - "Application", not "node". entry.name inherits that same bogus token from
+// ps-list, so it's not a safe fallback either. Scanning the full cmd string for the runtime name
+// via extractCmdBinaryPrefix (the same logic the blocklist already relies on) finds "node" no
+// matter how many spaces precede it in the path.
+const pickBinaryCandidate = (entry: ProcessEntry, expectedNames: string[]): string | null => {
+    const candidates = [entry.path, entry.cmd ? extractCmdBinaryPrefix(entry.cmd, expectedNames) : null, entry.name];
+
+    return (
+        candidates.find((candidate) => !!candidate && expectedNames.includes(basename(candidate).toLowerCase())) ?? null
+    );
+};
 
 export type Runtime = "node" | "bun" | "deno";
 
