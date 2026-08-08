@@ -23,13 +23,13 @@ This prints a static list instead of the interactive UI, useful for confirming o
 ## Table of Contents
 
 - [jstop](#jstop)
-    - [Usage](#usage)
-    - [Table of Contents](#table-of-contents)
-    - [Installation](#installation)
-    - [Configuration](#configuration)
-    - [Features](#features)
-    - [Platform notes](#platform-notes)
-    - [License](#license)
+  - [Usage](#usage)
+  - [Table of Contents](#table-of-contents)
+  - [Installation](#installation)
+  - [Configuration](#configuration)
+  - [Features](#features)
+  - [Platform notes](#platform-notes)
+  - [License](#license)
 
 ## Installation
 

@@ -1,4 +1,3 @@
-// src/classify.test.ts
 import { describe, expect, it } from "vitest";
 import { detectRuntime, isMcpProcess, isRealNodeProcess } from "./classify.js";
 import type { ProcessEntry } from "./types.js";

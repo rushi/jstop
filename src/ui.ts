@@ -42,16 +42,13 @@ const COLUMN_GAP_WIDTH = 2;
 // eslint-disable-next-line no-control-regex -- matching control chars is the point, not a mistake
 const CONTROL_CHARACTER_PATTERN = /[\x00-\x1f\x7f]/g;
 
-// On macOS, ps-list/ps render an embedded control byte as the literal 4-character sequence
-// "\" + 3 octal digits (e.g. "\012" for a newline) rather than the raw byte itself, so
-// CONTROL_CHARACTER_PATTERN never sees it. Strip that literal text pattern too, then collapse
-// the whitespace it leaves behind.
+// macOS ps renders an embedded control byte as the literal text "\" + 3 octal digits (e.g.
+// "\012") rather than the raw byte, so CONTROL_CHARACTER_PATTERN never sees it; strip that too.
 const OCTAL_ESCAPE_PATTERN = /\\[0-3][0-7]{2}/g;
 const MULTIPLE_SPACES_PATTERN = / {2,}/g;
 
-// Chalk's SGR ("Select Graphic Rendition") codes are the only ANSI sequences this codebase ever
-// emits (via chalk.dim/chalk.gray/etc.) - stripping just that pattern is enough to recover the
-// on-screen width of a colored cell for column alignment purposes.
+// Chalk's SGR codes are the only ANSI sequences this codebase emits, so stripping just this
+// pattern is enough to recover a colored cell's on-screen width for column alignment.
 // eslint-disable-next-line no-control-regex -- matching the ANSI escape byte is the point
 const ANSI_SGR_PATTERN = /\x1b\[[0-9;]*m/g;
 
@@ -94,11 +91,8 @@ export interface ColumnWidths {
 
 const HEADER_LABELS = { pid: "PID", tag: "TAG", project: "PROJECT", command: "COMMAND" } as const;
 
-// COMMAND is the last column, so it's never padded - "command" here is a truncation budget
-// (how much room is left for it), not a padding width like pid/tag/project. terminalWidth
-// defaults to the real terminal's column count so wide terminals show more of both PROJECT and
-// COMMAND instead of wasting the extra space on fixed caps; it falls back to
-// DEFAULT_TERMINAL_WIDTH when there's no TTY to measure (piped/non-TTY output).
+// COMMAND is never padded, so its width here is a truncation budget, not a column width.
+// terminalWidth defaults to the real terminal so wide terminals show more instead of fixed caps.
 export const computeColumnWidths = (
     entries: DisplayEntry[],
     terminalWidth: number = process.stdout.columns ?? DEFAULT_TERMINAL_WIDTH,
@@ -130,9 +124,8 @@ export const groupByProject = (entries: DisplayEntry[]): DisplayEntry[][] => {
     const clusters = new Map<string, DisplayEntry[]>();
 
     for (const display of entries) {
-        // An entry with neither cwd nor launcher has nothing identifying it as sharing a project
-        // with any other such entry, so it's keyed by its own (always-unique) pid instead of a
-        // shared "unknown source" literal - otherwise unrelated processes would wrongly cluster.
+        // Entries with neither cwd nor launcher key by their own pid, not a shared literal,
+        // otherwise unrelated processes would wrongly cluster together.
         const key = locationOf(display, `unknown:${display.entry.pid}`);
         const cluster = clusters.get(key);
 
@@ -147,9 +140,8 @@ export const groupByProject = (entries: DisplayEntry[]): DisplayEntry[][] => {
     return order.map((key) => clusters.get(key) as DisplayEntry[]);
 };
 
-// Matches the same command text shown in the COMMAND column (untruncated, flags included so a
-// keyword like a port number or subcommand still hits) plus the PROJECT column's cwd/launcher -
-// the two columns a user visually scans to recognize a process.
+// Matches against the untruncated command (flags included, so a port number or subcommand still
+// hits) plus the cwd/launcher, mirroring the two columns a user visually scans.
 export const matchesKeyword = (display: DisplayEntry, keyword: string): boolean => {
     const needle = keyword.toLowerCase();
     const command = cleanCommand(display, { verbose: true }).toLowerCase();
@@ -165,13 +157,10 @@ export const filterEntries = (entries: DisplayEntry[], keyword: string | undefin
     return entries.filter((display) => matchesKeyword(display, trimmed));
 };
 
-// A process whose parent is itself in the list is almost always a wrapper/launcher for the
-// entry that actually matters (e.g. a shell script's node child, or a watcher's respawned
-// worker) - the parent is enough to identify and act on that project's process, so the child
-// is redundant noise by default.
-// A pid can never equal its own ppid on a real OS, but test fixtures elsewhere in this file use
-// ppid as an unused filler value that happens to match pid - guarding against that keeps such an
-// entry from being wrongly treated as its own child/parent.
+// A process whose parent is also in the list is almost always a wrapper (shell script's node
+// child, watcher's respawned worker), so it's hidden as redundant noise by default.
+// Guards against test fixtures that use ppid as filler equal to pid; a real OS pid never equals
+// its own ppid.
 const isOwnChild = (display: DisplayEntry): boolean => display.entry.ppid === display.entry.pid;
 
 export const hideChildProcesses = (entries: DisplayEntry[]): DisplayEntry[] => {
@@ -186,11 +175,9 @@ export interface NestedEntry {
     parent: DisplayEntry | null;
 }
 
-// Moves each child (an entry whose ppid matches another listed entry's pid) to directly follow
-// its parent, indented one level deeper - so --all's output reads as a tree instead of the
-// child appearing as an unrelated row wherever it happened to fall in process-list order.
-// Entries with no in-list parent ("roots") keep their relative order (e.g. groupByProject's
-// cluster order); a root with no children in the list is unaffected (depth 0, same position).
+// Moves each child to directly follow its parent, indented deeper, so --all's output reads as a
+// tree instead of children appearing as unrelated rows wherever they fell in list order. Roots
+// keep their relative order (e.g. groupByProject's cluster order).
 export const nestChildren = (entries: DisplayEntry[]): NestedEntry[] => {
     const pids = new Set(entries.map((display) => display.entry.pid));
     const childrenByPpid = new Map<number, DisplayEntry[]>();
@@ -237,9 +224,8 @@ const cleanCommand = (display: DisplayEntry, options: DisplayOptions = {}): stri
     const raw = display.entry.cmd ?? display.entry.name;
     const stripped = raw.replace(CONTROL_CHARACTER_PATTERN, " ").replace(OCTAL_ESCAPE_PATTERN, " ").trim();
 
-    // collapsePathBinaries must run on the still-absolute (untrimmed) path: its match pattern
-    // requires a leading "/" or drive letter, so running it after trimHome would leave any
-    // PATH directory under $HOME (fnm/nvm/volta shims, ~/.bun/bin, ~/.local/bin, ...) uncollapsed.
+    // Must run before trimHome: its match requires a leading "/" or drive letter, so a
+    // ~-trimmed PATH directory (fnm/nvm/volta shims, ~/.bun/bin, ...) would go uncollapsed.
     const collapsedBinaries = collapsePathBinaries(stripped);
     const collapsedStore = collapsePackageStorePath(collapsedBinaries);
     const trimmed = trimHomeInCommand(collapsedStore);
@@ -254,12 +240,10 @@ const cleanCommand = (display: DisplayEntry, options: DisplayOptions = {}): stri
 const truncate = (value: string, maxLength: number): string =>
     value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
 
-// A long command is almost always one long path token (a node_modules/.pnpm-nested binary)
-// alongside a few short flags/args - right-truncating the whole string cuts off exactly the
-// informative tail (the actual package/binary name) while keeping the boring shared prefix.
-// Middle-collapsing just the longest token with truncateCommandPath keeps the package name
-// (node_modules/<name>) legible - falling back to plain right-truncation only if even that
-// still doesn't fit (e.g. a single unsplittable segment with no node_modules in it at all).
+// A long command is usually one long path token (a nested node_modules binary) plus short
+// flags. Right-truncating the whole string would cut off the informative tail (package name),
+// so only the longest token is middle-collapsed via truncateCommandPath; plain right-truncation
+// is the fallback if that still doesn't fit.
 const truncateCommandCell = (cmdStr: string, maxLength: number): string => {
     if (cmdStr.length <= maxLength) return cmdStr;
 
@@ -287,9 +271,8 @@ const colorizeTag = (tag: Tag | null): string => {
     return "";
 };
 
-// depth > 0 means this entry's parent process is also in the list (only possible under --all,
-// since hideChildProcesses drops these by default) - a tree connector makes that relationship
-// visible instead of the child just looking like an unrelated sibling row.
+// depth > 0 only happens under --all (hideChildProcesses drops these by default); the tree
+// connector makes the parent/child relationship visible.
 const indentCommand = (commandCell: string, depth: number): string =>
     depth > 0 ? `${"  ".repeat(depth - 1)}${chalk.dim("└─")} ${commandCell}` : commandCell;
 
@@ -302,9 +285,8 @@ export const formatListLine = (
 ): string => {
     const location = locationOf(display);
     const tag = resolveTag(display.entry);
-    // A child sharing its parent's tag/project (the common case - inherited from the same
-    // launch) repeats information the parent row directly above it already shows, so it's
-    // blanked out here to keep the eye on what's actually different: the child's own command.
+    // A child sharing its parent's tag/project repeats what the row above already shows, so
+    // it's blanked out to keep focus on what differs: the child's own command.
     const sameAsParent = depth > 0 && parent !== null;
     const showTag = !(sameAsParent && tag === resolveTag(parent.entry));
     const showProject = !(sameAsParent && location === locationOf(parent));
@@ -395,9 +377,8 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
         return;
     }
 
-    // Mutable across loop iterations: a confirmed kill removes the pid here so the list rebuilt
-    // below no longer shows it, instead of the stale pre-kill snapshot lingering until the next
-    // full jstop invocation.
+    // Mutable: a confirmed kill removes the pid so the rebuilt list doesn't show a stale
+    // pre-kill snapshot until the next full jstop invocation.
     let orderedEntries = groupByProject(entries).flat();
 
     for (;;) {
@@ -411,14 +392,11 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
         // autocomplete (rather than select) gives a built-in "type to filter" search box, so a
         // long process list can be narrowed live without any custom keypress handling.
         const selected = await clack.autocomplete({
-            // Each option row is prefixed with a bar + 2 spaces + a radio glyph + a space (5 chars)
-            // before its label. Unlike select() (which re-prefixes every message line with the bar
-            // via wrapTextWithPrefix), autocomplete's message is interpolated raw - a continuation
-            // line gets none of that prefix from clack - so all 5 characters have to be reproduced
-            // here as literal spaces for the header's column labels to line up with the rows below.
-            // The footer hint line ("↑/↓ to select • Enter: confirm • Type: to search") is hardcoded
-            // inside @clack/prompts and isn't configurable, so the exit hint has to live in the
-            // message text instead - Esc/Ctrl+C are already wired up via clack.isCancel below.
+            // Each option row is prefixed with 5 chars (bar, 2 spaces, radio glyph, space) that
+            // clack adds automatically for select() but not for autocomplete()'s raw message, so
+            // they're reproduced here as literal spaces to line up the header with the rows.
+            // The footer hint is hardcoded inside @clack/prompts and isn't configurable, so the
+            // exit hint (Esc/Ctrl+C, wired up via clack.isCancel below) lives in the message text.
             message: `Found ${orderedEntries.length} process${orderedEntries.length === 1 ? "" : "es"} (Esc to exit)\n     ${formatHeaderRow(widths)}`,
             placeholder: "Type to filter…",
             options: autocompleteOptions,
@@ -452,9 +430,8 @@ export const printPlainList = (entries: DisplayEntry[], options: DisplayOptions 
         return;
     }
 
-    // Plain mode always renders untruncated rows (see the noTruncate: true below), so widths must
-    // be computed with the same option or long commands overflow their padded cell and drag every
-    // row after them out of alignment with the PROJECT column.
+    // Widths must be computed with noTruncate too, or a long untruncated command overflows its
+    // padded cell and drags every row after it out of alignment with the PROJECT column.
     const renderOptions: DisplayOptions = { ...options, noTruncate: true };
     const clusters = groupByProject(entries);
     const widths = computeColumnWidths(entries);

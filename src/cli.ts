@@ -37,10 +37,8 @@ program
         const isPlain = Boolean(options.plain) || !process.stdout.isTTY;
 
         if (isPlain) {
-            // chalk's own TTY auto-detection only covers the vanilla non-TTY case; it misses
-            // FORCE_COLOR being set (common in CI) or --plain being requested while still
-            // attached to a real TTY (e.g. via a pty wrapper). Plain output is meant to be
-            // machine/file-consumable, so force color off regardless of environment state.
+            // Explicit override: chalk's own TTY detection misses FORCE_COLOR (CI) and --plain
+            // requested while still attached to a real TTY (pty wrappers).
             chalk.level = 0;
             printPlainList(displayEntries, { verbose });
             return;

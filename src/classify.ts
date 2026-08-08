@@ -10,11 +10,9 @@ const basename = (filePath: string): string => filePath.split(/[\\/]/).pop() ?? 
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-// Cutting the raw cmd at the first whitespace-bounded occurrence of the expected binary name
-// (rather than scanning the entire cmd, arguments included) keeps legitimate cases working: a
-// real node process whose *arguments* happen to mention an Electron app's path (e.g. an MCP
-// server passed its caller's path via --host) must not be rejected just because that path shows
-// up later in the string.
+// Stops at the first whitespace-bounded match instead of scanning the whole cmd, so a real
+// node process whose *arguments* happen to mention an Electron path (e.g. --host <path>) isn't
+// wrongly rejected.
 const extractCmdBinaryPrefix = (cmd: string, expectedNames: string[]): string => {
     const alternation = expectedNames.map(escapeRegExp).join("|");
     const match = new RegExp(`^.*?(?:${alternation})(?=\\s|$)`, "i").exec(cmd);
@@ -25,13 +23,9 @@ const extractCmdBinaryPrefix = (cmd: string, expectedNames: string[]): string =>
 const expectedNamesFor = (platform: NodeJS.Platform): string[] =>
     platform === "win32" ? EXPECTED_RUNTIME_NAMES.map((name) => `${name}.exe`) : EXPECTED_RUNTIME_NAMES;
 
-// ps-list reports an empty string (not undefined) when its best-effort path extraction fails,
-// and naively splitting cmd on the first space truncates a binary path that lives in a directory
-// with spaces (e.g. fnm installs under "~/Library/Application Support/fnm/...") into a bogus
-// argv0 token - "Application", not "node". entry.name inherits that same bogus token from
-// ps-list, so it's not a safe fallback either. Scanning the full cmd string for the runtime name
-// via extractCmdBinaryPrefix (the same logic the blocklist already relies on) finds "node" no
-// matter how many spaces precede it in the path.
+// entry.path can be empty and entry.name can be a bogus argv0 token (e.g. "Application" from a
+// path with spaces, like fnm's "~/Library/Application Support/fnm/..."), so cmd is scanned via
+// extractCmdBinaryPrefix as a fallback that finds the runtime name regardless of spaces.
 const pickBinaryCandidate = (entry: ProcessEntry, expectedNames: string[]): string | null => {
     const candidates = [entry.path, entry.cmd ? extractCmdBinaryPrefix(entry.cmd, expectedNames) : null, entry.name];
 
@@ -49,9 +43,8 @@ const runtimeFromBinary = (binary: string | null, expectedNames: string[]): Runt
     return matchedIndex === -1 ? null : (EXPECTED_RUNTIME_NAMES[matchedIndex] as Runtime);
 };
 
-// Runs the same candidate-resolution/basename-matching logic isRealNodeProcess always relied on,
-// but surfaces which specific runtime matched instead of collapsing all three down to a boolean
-// - the UI wants to tag bun/deno processes distinctly from the (default, uncalled-out) node case.
+// Surfaces which runtime matched instead of collapsing to a boolean, since the UI tags bun/deno
+// distinctly from the default node case.
 export const detectRuntime = (entry: ProcessEntry, platform: NodeJS.Platform = process.platform): Runtime | null => {
     const expectedNames = expectedNamesFor(platform);
     return runtimeFromBinary(pickBinaryCandidate(entry, expectedNames), expectedNames);
@@ -60,9 +53,8 @@ export const detectRuntime = (entry: ProcessEntry, platform: NodeJS.Platform = p
 const isBlocklisted = (entry: ProcessEntry, binary: string | null, expectedNames: string[]): boolean => {
     const cmdBinaryPrefix = entry.cmd ? extractCmdBinaryPrefix(entry.cmd, expectedNames) : "";
 
-    // The blocklist always scans the resolved binary, the process name, the raw path, and the
-    // cmd's binary-path prefix - independent of which candidate matched above - so an Electron-
-    // packaged node binary can't slip through just because its argv0 token was mangled by a space.
+    // Scans binary, name, path, and cmd prefix together (not just the candidate that matched
+    // above) so an Electron-packaged node binary can't slip through via a space-mangled argv0.
     const haystack = `${binary ?? ""} ${entry.name} ${entry.path ?? ""} ${cmdBinaryPrefix}`;
     return BLOCKLIST_MARKERS.some((marker) => haystack.includes(marker));
 };
@@ -74,11 +66,8 @@ export const isRealNodeProcess = (entry: ProcessEntry, platform: NodeJS.Platform
     return runtimeFromBinary(binary, expectedNames) !== null && !isBlocklisted(entry, binary, expectedNames);
 };
 
-// A whole-word, case-insensitive match on "mcp" - not a substring match - so a real MCP server
-// invocation (a bare "mcp" argument, e.g. `pnpx @foo/expect-cli mcp`) is flagged while incidental
-// substrings like "mcpfoo" or "somemcpthing" are not. `_` is a \w character, so a plain \b would
-// not fire between "mcp" and "_" and would miss snake_case names like "mcp_server.js" - the
-// explicit [^a-z0-9] boundary treats underscores and hyphens as delimiters too.
+// Whole-word match on "mcp" (not substring), so "somemcpthing" isn't flagged. Uses an explicit
+// [^a-z0-9] boundary instead of \b, since \b treats "_" as a word char and would miss "mcp_server.js".
 const MCP_WORD_PATTERN = /(?:^|[^a-z0-9])mcp(?:$|[^a-z0-9])/i;
 
 export const isMcpProcess = (cmd?: string): boolean => !!cmd && MCP_WORD_PATTERN.test(cmd);

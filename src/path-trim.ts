@@ -13,10 +13,8 @@ const mapTokens = (cmdStr: string, fn: (token: string) => string): string => cmd
 
 export const trimHomeInCommand = (command: string): string => mapTokens(command, (token) => trimHome(token));
 
-// The process's cwd is already shown alongside the command (see formatListLine's PROJECT
-// column), so any command token that lives inside that cwd is redundant to spell out in full -
-// collapsing it to "." makes clear the process runs from that folder without repeating the path
-// twice on the same line.
+// The cwd is already shown in the PROJECT column, so a command token living inside it is
+// redundant to spell out in full; collapsed to "." to avoid repeating the path on the same line.
 export const relativizeToCwd = (cmdStr: string, cwd: string | null): string => {
     if (!cwd) return cmdStr;
 
@@ -36,9 +34,8 @@ export const collapsePackageStorePath = (pathStr: string): string =>
 
 const ABSOLUTE_PATH_PATTERN = /^([a-zA-Z]:\\|\/)/;
 
-// A token is "PATH-resolvable" when its directory exactly matches one of the directories on
-// $PATH (the same rule the shell itself uses to find a binary by bare name). Collapsing those
-// tokens to their basename mirrors what the user would have typed at a prompt.
+// A token is "PATH-resolvable" when its directory matches a $PATH entry exactly (the same rule
+// the shell uses); collapsing it to basename mirrors what the user would have typed.
 export const collapsePathBinaries = (
     cmdStr: string,
     pathDirs: string[] = (process.env.PATH ?? "").split(path.delimiter),
@@ -57,25 +54,19 @@ export const collapsePathBinaries = (
 // number like "-1" does not match, since digits aren't letters).
 const FLAG_TOKEN_PATTERN = /^--?[a-zA-Z]/;
 
-// An "entry point"-looking token is kept even when it directly follows a flag, since it's more
-// likely to be the actual script being run (e.g. "--inspect app.js") than that flag's value.
-// A bare "." or a "./"-prefixed token also counts: relativizeToCwd (which runs earlier in the
-// pipeline) collapses a cwd-matching token down to exactly ".", and without this check that
-// token would otherwise look like a droppable flag value here, erasing the entry point entirely.
+// An "entry point"-looking token is kept even right after a flag (e.g. "--inspect app.js"),
+// since it's more likely the script being run than that flag's value. A bare "." also counts,
+// since relativizeToCwd (earlier in the pipeline) collapses a cwd-matching token to exactly ".".
 const ENTRY_POINT_EXTENSION_PATTERN = /\.(js|mjs|cjs|ts)$/;
 const looksLikeEntryPoint = (token: string): boolean =>
     ENTRY_POINT_EXTENSION_PATTERN.test(token) || token.includes("/") || token === "." || token.startsWith("./");
 
-// A flag's value (e.g. "3000" following "--port") has no reliable way to be distinguished from
-// a positional argument without knowing the specific CLI's argument schema. As a heuristic, the
-// token immediately following a stripped flag is also stripped, unless it looks like an entry
-// point (ends in .js/.mjs/.cjs/.ts, or contains a "/"); that keeps `--inspect app.js` readable
-// while dropping `--port 3000`, `--host 0.0.0.0`, etc.
+// A flag's value can't be reliably distinguished from a positional argument without per-CLI
+// schema knowledge, so the token after a stripped flag is also stripped unless it looks like an
+// entry point - that keeps `--inspect app.js` readable while dropping `--port 3000`.
 //
-// Known false-negative, accepted as a tradeoff: a boolean flag with no value (e.g. `--silent`)
-// still eats the next token even though it isn't that flag's argument (`npm run --silent build`
-// loses "build"). Fixing this would require per-CLI knowledge of which flags take values, which
-// is out of scope; see the pinned test for this exact case.
+// Accepted false-negative: a boolean flag with no value (e.g. `--silent`) still eats the next
+// token (`npm run --silent build` loses "build"); see the pinned test for this exact case.
 export const stripFlags = (cmdStr: string): string => {
     const tokens = cmdStr.split(/\s+/).filter((token) => token.length > 0);
     const kept: string[] = [];
@@ -97,10 +88,8 @@ export const stripFlags = (cmdStr: string): string => {
     return kept.join(" ");
 };
 
-// Walks `segments` backward starting from `segments.length - 2`, collapsing each non-empty
-// segment to its first character, until `fits` is satisfied - shrinking the middle of a path
-// while always keeping its last segment intact. `minIndex` also keeps the first segment (index 0)
-// untouched when set to 1. Mutates and returns `segments` in place.
+// Collapses segments to their first character from the back (keeping the last segment intact)
+// until `fits` is satisfied. `minIndex` can also protect the first segment. Mutates in place.
 const shrinkSegmentsToFit = (segments: string[], fits: (segments: string[]) => boolean, minIndex = 0): string[] => {
     for (let i = segments.length - 2; i >= minIndex; i -= 1) {
         const segment = segments[i];
@@ -123,16 +112,11 @@ export const truncateProjectPath = (pathStr: string, maxWidth: number): string =
 
 const buildEllipsizedPackagePath = (anchor: string[], tail: string[]): string => `…/${[...anchor, ...tail].join("/")}`;
 
-// The npm/pnpm package that a long command path is actually running is the one thing worth
-// keeping legible - everything before it (the project path, already shown in the PROJECT
-// column, plus the .pnpm store's hash directories) is pure noise once a package's location is
-// known, and collapsing it segment-by-segment into single letters (e.g. "n/./@/n/") reads as
-// garbage rather than a meaningful abbreviation. So instead of shrinking that prefix, it's
-// dropped entirely behind a single "…". `node_modules/<name>` becomes the anchor - a scoped
-// name ("@scope/name") or a `.bin/<name>` shim counts as one two-segment unit - and is never
-// touched. Only the (usually short) subpath after the package, if any, still shrinks
-// segment-by-segment when needed, the same backward-from-the-end way truncateProjectPath does,
-// always keeping its own last segment intact.
+// The package under node_modules is the one thing worth keeping legible; everything before it
+// (project path, .pnpm hash dirs) is dropped behind a single "…" instead of collapsed
+// segment-by-segment, which would read as garbage (e.g. "n/./@/n/"). The package name itself
+// (`node_modules/<name>`, or `@scope/name` / `.bin/<name>` as one unit) is never touched; only
+// the subpath after it shrinks further if still needed.
 export const truncateCommandPath = (pathStr: string, maxWidth: number): string => {
     if (pathStr.length <= maxWidth) return pathStr;
 
