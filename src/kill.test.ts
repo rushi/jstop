@@ -31,7 +31,9 @@ describe("terminateProcess", () => {
         await new Promise((resolve) => setTimeout(resolve, 200));
 
         const pid = child.pid;
-        if (!pid) throw new Error("child process has no pid");
+        if (!pid) {
+            throw new Error("child process has no pid");
+        }
 
         expect(isProcessAlive(pid)).toBe(true);
 
@@ -52,7 +54,9 @@ describe("terminateProcess", () => {
             await new Promise((resolve) => setTimeout(resolve, 200));
 
             const pid = child.pid;
-            if (!pid) throw new Error("child process has no pid");
+            if (!pid) {
+                throw new Error("child process has no pid");
+            }
 
             const result = await terminateProcess(pid);
             expect(result).toEqual({ stillAlive: true, canEscalate: true });

@@ -10,15 +10,21 @@ const isWrapperName = (name: string): boolean =>
 
 export const findAncestorLauncher = (pid: number, snapshot: Map<number, ProcessEntry>): ProcessEntry | null => {
     const start = snapshot.get(pid);
-    if (!start) return null;
+    if (!start) {
+        return null;
+    }
 
     const visited = new Set<number>([pid]);
     let currentPpid = start.ppid;
 
     while (currentPpid && !visited.has(currentPpid)) {
         const ancestor = snapshot.get(currentPpid);
-        if (!ancestor) return null;
-        if (!isWrapperName(ancestor.name)) return ancestor;
+        if (!ancestor) {
+            return null;
+        }
+        if (!isWrapperName(ancestor.name)) {
+            return ancestor;
+        }
 
         visited.add(currentPpid);
         currentPpid = ancestor.ppid;

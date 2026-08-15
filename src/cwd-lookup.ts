@@ -2,7 +2,9 @@ import { readlink } from "node:fs/promises";
 import { execa } from "execa";
 
 export const lookupCwd = async (pid: number, platform: NodeJS.Platform = process.platform): Promise<string | null> => {
-    if (platform === "win32") return null;
+    if (platform === "win32") {
+        return null;
+    }
 
     if (platform === "linux") {
         try {

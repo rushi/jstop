@@ -62,11 +62,17 @@ export type Tag = "MCP" | "BUN" | "DENO";
 // MCP takes priority over the runtime tag when a process matches both (e.g. a Bun-hosted MCP
 // server) - which tool a process is running as matters more here than which runtime hosts it.
 export const resolveTag = (entry: ProcessEntry): Tag | null => {
-    if (isMcpProcess(entry.cmd ?? entry.name)) return "MCP";
+    if (isMcpProcess(entry.cmd ?? entry.name)) {
+        return "MCP";
+    }
 
     const runtime = detectRuntime(entry);
-    if (runtime === "bun") return "BUN";
-    if (runtime === "deno") return "DENO";
+    if (runtime === "bun") {
+        return "BUN";
+    }
+    if (runtime === "deno") {
+        return "DENO";
+    }
 
     return null;
 };
@@ -152,7 +158,9 @@ export const matchesKeyword = (display: DisplayEntry, keyword: string): boolean 
 
 export const filterEntries = (entries: DisplayEntry[], keyword: string | undefined): DisplayEntry[] => {
     const trimmed = keyword?.trim();
-    if (!trimmed) return entries;
+    if (!trimmed) {
+        return entries;
+    }
 
     return entries.filter((display) => matchesKeyword(display, trimmed));
 };
@@ -200,10 +208,14 @@ export const nestChildren = (entries: DisplayEntry[]): NestedEntry[] => {
     const result: NestedEntry[] = [];
     const visit = (display: DisplayEntry, depth: number, parent: DisplayEntry | null): void => {
         result.push({ display, depth, parent });
-        for (const child of childrenByPpid.get(display.entry.pid) ?? []) visit(child, depth + 1, display);
+        for (const child of childrenByPpid.get(display.entry.pid) ?? []) {
+            visit(child, depth + 1, display);
+        }
     };
 
-    for (const root of roots) visit(root, 0, null);
+    for (const root of roots) {
+        visit(root, 0, null);
+    }
 
     return result;
 };
@@ -215,7 +227,9 @@ const KILL_ERROR_MESSAGES: Record<string, string> = {
 
 const describeKillError = (error: unknown): string => {
     const code = (error as NodeJS.ErrnoException | null)?.code;
-    if (code && KILL_ERROR_MESSAGES[code]) return KILL_ERROR_MESSAGES[code];
+    if (code && KILL_ERROR_MESSAGES[code]) {
+        return KILL_ERROR_MESSAGES[code];
+    }
 
     return error instanceof Error ? error.message : String(error);
 };
@@ -245,7 +259,9 @@ const truncate = (value: string, maxLength: number): string =>
 // so only the longest token is middle-collapsed via truncateCommandPath; plain right-truncation
 // is the fallback if that still doesn't fit.
 const truncateCommandCell = (cmdStr: string, maxLength: number): string => {
-    if (cmdStr.length <= maxLength) return cmdStr;
+    if (cmdStr.length <= maxLength) {
+        return cmdStr;
+    }
 
     const tokens = cmdStr.split(" ");
     const longestIndex = tokens.reduce(
@@ -264,9 +280,15 @@ const truncateCommandCell = (cmdStr: string, maxLength: number): string => {
 };
 
 const colorizeTag = (tag: Tag | null): string => {
-    if (tag === "MCP") return chalk.magenta("MCP");
-    if (tag === "BUN") return chalk.yellow("BUN");
-    if (tag === "DENO") return chalk.cyan("DENO");
+    if (tag === "MCP") {
+        return chalk.magenta("MCP");
+    }
+    if (tag === "BUN") {
+        return chalk.yellow("BUN");
+    }
+    if (tag === "DENO") {
+        return chalk.cyan("DENO");
+    }
 
     return "";
 };
@@ -364,7 +386,9 @@ const showDetail = async (display: DisplayEntry, options: DisplayOptions = {}): 
     );
 
     const shouldKill = await clack.confirm({ message: "Kill this process?", initialValue: false });
-    if (clack.isCancel(shouldKill) || !shouldKill) return false;
+    if (clack.isCancel(shouldKill) || !shouldKill) {
+        return false;
+    }
 
     return attemptKill(display.entry.pid);
 };
@@ -438,7 +462,9 @@ export const printPlainList = (entries: DisplayEntry[], options: DisplayOptions 
     console.log(formatHeaderRow(widths));
 
     clusters.forEach((cluster, index) => {
-        if (index > 0) console.log("");
+        if (index > 0) {
+            console.log("");
+        }
 
         for (const { display, depth, parent } of nestChildren(cluster)) {
             console.log(formatListLine(display, widths, renderOptions, depth, parent));

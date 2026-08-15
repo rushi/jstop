@@ -37,7 +37,9 @@ const pickBinaryCandidate = (entry: ProcessEntry, expectedNames: string[]): stri
 export type Runtime = "node" | "bun" | "deno";
 
 const runtimeFromBinary = (binary: string | null, expectedNames: string[]): Runtime | null => {
-    if (!binary) return null;
+    if (!binary) {
+        return null;
+    }
 
     const matchedIndex = expectedNames.indexOf(basename(binary).toLowerCase());
     return matchedIndex === -1 ? null : (EXPECTED_RUNTIME_NAMES[matchedIndex] as Runtime);

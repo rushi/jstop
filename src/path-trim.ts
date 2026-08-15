@@ -2,9 +2,15 @@ import os from "node:os";
 import path from "node:path";
 
 export const trimHome = (pathStr: string, home: string = os.homedir()): string => {
-    if (!home) return pathStr;
-    if (pathStr === home) return "~";
-    if (pathStr.startsWith(`${home}/`)) return `~${pathStr.slice(home.length)}`;
+    if (!home) {
+        return pathStr;
+    }
+    if (pathStr === home) {
+        return "~";
+    }
+    if (pathStr.startsWith(`${home}/`)) {
+        return `~${pathStr.slice(home.length)}`;
+    }
 
     return pathStr;
 };
@@ -16,11 +22,17 @@ export const trimHomeInCommand = (command: string): string => mapTokens(command,
 // The cwd is already shown in the PROJECT column, so a command token living inside it is
 // redundant to spell out in full; collapsed to "." to avoid repeating the path on the same line.
 export const relativizeToCwd = (cmdStr: string, cwd: string | null): string => {
-    if (!cwd) return cmdStr;
+    if (!cwd) {
+        return cmdStr;
+    }
 
     return mapTokens(cmdStr, (token) => {
-        if (token === cwd) return ".";
-        if (token.startsWith(`${cwd}/`)) return `.${token.slice(cwd.length)}`;
+        if (token === cwd) {
+            return ".";
+        }
+        if (token.startsWith(`${cwd}/`)) {
+            return `.${token.slice(cwd.length)}`;
+        }
 
         return token;
     });
@@ -43,7 +55,9 @@ export const collapsePathBinaries = (
     const normalizedPathDirs = new Set(pathDirs.map((dir) => path.normalize(dir).replace(/[\\/]+$/, "")));
 
     return mapTokens(cmdStr, (token) => {
-        if (!ABSOLUTE_PATH_PATTERN.test(token)) return token;
+        if (!ABSOLUTE_PATH_PATTERN.test(token)) {
+            return token;
+        }
 
         const dir = path.normalize(path.dirname(token)).replace(/[\\/]+$/, "");
         return normalizedPathDirs.has(dir) ? path.basename(token) : token;
@@ -73,7 +87,9 @@ export const stripFlags = (cmdStr: string): string => {
 
     for (let i = 0; i < tokens.length; i += 1) {
         const token = tokens[i];
-        if (token === undefined) continue;
+        if (token === undefined) {
+            continue;
+        }
 
         if (!FLAG_TOKEN_PATTERN.test(token)) {
             kept.push(token);
@@ -82,7 +98,9 @@ export const stripFlags = (cmdStr: string): string => {
 
         const next = tokens[i + 1];
         const nextIsValue = next !== undefined && !FLAG_TOKEN_PATTERN.test(next) && !looksLikeEntryPoint(next);
-        if (nextIsValue) i += 1;
+        if (nextIsValue) {
+            i += 1;
+        }
     }
 
     return kept.join(" ");
@@ -93,17 +111,23 @@ export const stripFlags = (cmdStr: string): string => {
 const shrinkSegmentsToFit = (segments: string[], fits: (segments: string[]) => boolean, minIndex = 0): string[] => {
     for (let i = segments.length - 2; i >= minIndex; i -= 1) {
         const segment = segments[i];
-        if (segment === undefined || segment.length === 0) continue;
+        if (segment === undefined || segment.length === 0) {
+            continue;
+        }
 
         segments[i] = segment[0] as string;
-        if (fits(segments)) break;
+        if (fits(segments)) {
+            break;
+        }
     }
 
     return segments;
 };
 
 export const truncateProjectPath = (pathStr: string, maxWidth: number): string => {
-    if (pathStr.length <= maxWidth) return pathStr;
+    if (pathStr.length <= maxWidth) {
+        return pathStr;
+    }
 
     const segments = shrinkSegmentsToFit(pathStr.split("/"), (segs) => segs.join("/").length <= maxWidth, 1);
 
@@ -118,7 +142,9 @@ const buildEllipsizedPackagePath = (anchor: string[], tail: string[]): string =>
 // (`node_modules/<name>`, or `@scope/name` / `.bin/<name>` as one unit) is never touched; only
 // the subpath after it shrinks further if still needed.
 export const truncateCommandPath = (pathStr: string, maxWidth: number): string => {
-    if (pathStr.length <= maxWidth) return pathStr;
+    if (pathStr.length <= maxWidth) {
+        return pathStr;
+    }
 
     const segments = pathStr.split("/");
     const lastIndex = segments.length - 1;
