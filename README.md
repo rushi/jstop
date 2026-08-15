@@ -34,7 +34,7 @@ This prints a static list instead of the interactive UI, useful for confirming o
 ## Installation
 
 ```sh
-npm install -g jstop
+npm install -g @rushiv/jstop
 ```
 
 Then run it directly:
