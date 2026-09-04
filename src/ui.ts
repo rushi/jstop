@@ -373,6 +373,79 @@ const attemptKill = async (pid: number): Promise<boolean> => {
     }
 };
 
+// Returns the pids confirmed dead, so runInteractiveList can drop them from the list. Unlike
+// the single-pid attemptKill, survivors are escalated as one batch: one confirm covers all of
+// them rather than one prompt per process.
+export const attemptBatchKill = async (pids: number[]): Promise<number[]> => {
+    const settled = await Promise.all(
+        pids.map(async (pid) => {
+            try {
+                return { pid, result: await terminateProcess(pid), error: null };
+            } catch (error) {
+                return { pid, result: null, error };
+            }
+        }),
+    );
+
+    const dead: number[] = [];
+    const survivors: number[] = [];
+
+    for (const { pid, result, error } of settled) {
+        if (error) {
+            clack.log.error(`Could not kill pid ${pid}: ${describeKillError(error)}`);
+            continue;
+        }
+
+        if (!result?.stillAlive) {
+            clack.log.success(`Killed pid ${pid}.`);
+            dead.push(pid);
+            continue;
+        }
+
+        if (!result.canEscalate) {
+            clack.log.error(`pid ${pid} is still running.`);
+            continue;
+        }
+
+        survivors.push(pid);
+    }
+
+    if (survivors.length === 0) {
+        return dead;
+    }
+
+    const shouldEscalate = await clack.confirm({
+        message: `${survivors.length} process${survivors.length === 1 ? "" : "es"} still running. Send SIGKILL to all?`,
+        initialValue: false,
+    });
+
+    if (clack.isCancel(shouldEscalate) || !shouldEscalate) {
+        for (const pid of survivors) {
+            clack.log.warn(`Left pid ${pid} running.`);
+        }
+        return dead;
+    }
+
+    await Promise.all(
+        survivors.map(async (pid) => {
+            try {
+                const forced = await forceTerminateProcess(pid);
+                if (forced.stillAlive) {
+                    clack.log.error(`pid ${pid} is still running after SIGKILL.`);
+                    return;
+                }
+
+                clack.log.success(`Killed pid ${pid} with SIGKILL.`);
+                dead.push(pid);
+            } catch (error) {
+                clack.log.error(`Could not force-kill pid ${pid}: ${describeKillError(error)}`);
+            }
+        }),
+    );
+
+    return dead;
+};
+
 // Returns whether the process was confirmed killed, so runInteractiveList can drop it from the list.
 const showDetail = async (display: DisplayEntry, options: DisplayOptions = {}): Promise<boolean> => {
     clack.log.info(
@@ -413,14 +486,16 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
             label: formatListLine(display, widths, options, depth, parent),
         }));
 
-        // autocomplete (rather than select) gives a built-in "type to filter" search box, so a
-        // long process list can be narrowed live without any custom keypress handling.
-        const selected = await clack.autocomplete({
-            // Each option row is prefixed with 5 chars (bar, 2 spaces, radio glyph, space) that
-            // clack adds automatically for select() but not for autocomplete()'s raw message, so
-            // they're reproduced here as literal spaces to line up the header with the rows.
-            // The footer hint is hardcoded inside @clack/prompts and isn't configurable, so the
-            // exit hint (Esc/Ctrl+C, wired up via clack.isCancel below) lives in the message text.
+        // autocompleteMultiselect (rather than select) gives a built-in "type to filter" search
+        // box plus space/tab marking, so one or many processes can be picked without any custom
+        // keypress handling. One marked row opens the detail view; several go to batch kill.
+        const selected = await clack.autocompleteMultiselect<number>({
+            // Each option row is prefixed with 5 chars (bar, 2 spaces, checkbox glyph, space)
+            // that clack adds automatically for select() but not for autocompleteMultiselect()'s
+            // raw message, so they're reproduced here as literal spaces to line up the header
+            // with the rows. The footer hint is hardcoded inside @clack/prompts and isn't
+            // configurable, so the exit hint (Esc/Ctrl+C, wired up via clack.isCancel below)
+            // lives in the message text.
             message: `Found ${orderedEntries.length} process${orderedEntries.length === 1 ? "" : "es"} (Esc to exit)\n     ${formatHeaderRow(widths)}`,
             placeholder: "Type to filter…",
             options: autocompleteOptions,
@@ -431,19 +506,43 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
             return;
         }
 
-        const display = orderedEntries.find((item) => item.entry.pid === selected);
-        if (!display) {
-            clack.outro("Bye");
-            return;
+        if (selected.length === 0) {
+            continue;
         }
 
-        const killed = await showDetail(display, options);
-        if (killed) {
-            orderedEntries = orderedEntries.filter((item) => item.entry.pid !== display.entry.pid);
-            if (orderedEntries.length === 0) {
-                clack.outro("No processes left.");
+        if (selected.length === 1) {
+            const display = orderedEntries.find((item) => item.entry.pid === selected[0]);
+            if (!display) {
+                clack.outro("Bye");
                 return;
             }
+
+            const killed = await showDetail(display, options);
+            if (killed) {
+                orderedEntries = orderedEntries.filter((item) => item.entry.pid !== display.entry.pid);
+                if (orderedEntries.length === 0) {
+                    clack.outro("No processes left.");
+                    return;
+                }
+            }
+
+            continue;
+        }
+
+        const shouldKillAll = await clack.confirm({
+            message: `Kill ${selected.length} processes?`,
+            initialValue: false,
+        });
+
+        if (clack.isCancel(shouldKillAll) || !shouldKillAll) {
+            continue;
+        }
+
+        const deadPids = new Set(await attemptBatchKill(selected));
+        orderedEntries = orderedEntries.filter((item) => !deadPids.has(item.entry.pid));
+        if (orderedEntries.length === 0) {
+            clack.outro("No processes left.");
+            return;
         }
     }
 };

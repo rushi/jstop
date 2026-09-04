@@ -1,7 +1,11 @@
 import os from "node:os";
+import * as clack from "@clack/prompts";
 import chalk from "chalk";
+import { execa } from "execa";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { isProcessAlive } from "./kill.js";
 import {
+    attemptBatchKill,
     computeColumnWidths,
     filterEntries,
     formatCommandCell,
@@ -17,6 +21,18 @@ import {
     visibleLength,
 } from "./ui.js";
 import type { DisplayEntry } from "./ui.js";
+
+vi.mock("@clack/prompts", async (importActual) => {
+    const actual = await importActual<typeof import("@clack/prompts")>();
+    return {
+        ...actual,
+        autocompleteMultiselect: vi.fn(),
+        intro: vi.fn(),
+        outro: vi.fn(),
+        confirm: vi.fn(),
+        log: { ...actual.log, success: vi.fn(), error: vi.fn(), warn: vi.fn() },
+    };
+});
 
 // eslint-disable-next-line no-control-regex -- matching the ANSI escape byte is the point
 const stripAnsi = (value: string): string => value.replace(/\x1b\[[0-9;]*m/g, "");
@@ -905,6 +921,97 @@ describe("printPlainList", () => {
 
         logSpy.mockRestore();
     });
+});
+
+describe("attemptBatchKill", () => {
+    const confirmMock = vi.mocked(clack.confirm);
+    const spawnedPids: number[] = [];
+
+    const spawnChild = (script: string): number => {
+        const child = execa("node", ["-e", script]);
+        child.catch(() => {
+            // Expected: tests kill the child, so the execa promise rejects.
+            // Attached immediately so the rejection is never briefly "unhandled".
+        });
+        const pid = child.pid;
+        if (!pid) {
+            throw new Error("child process has no pid");
+        }
+        spawnedPids.push(pid);
+        return pid;
+    };
+
+    const spawnSleeper = (): number => spawnChild("setTimeout(() => {}, 10_000)");
+    const spawnSigtermIgnorer = (): number =>
+        spawnChild("process.on('SIGTERM', () => {}); setTimeout(() => {}, 10_000)");
+
+    const waitForStart = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 200));
+
+    afterEach(() => {
+        confirmMock.mockReset();
+        // Belt-and-braces cleanup: a failed assertion must not leak a running child.
+        for (const pid of spawnedPids.splice(0)) {
+            try {
+                process.kill(pid, "SIGKILL");
+            } catch {
+                // Already dead, nothing to clean up.
+            }
+        }
+    });
+
+    it("SIGTERMs every pid and returns the ones confirmed dead, without prompting", async () => {
+        const first = spawnSleeper();
+        const second = spawnSleeper();
+        await waitForStart();
+
+        const dead = await attemptBatchKill([first, second]);
+
+        expect(dead).toEqual([first, second]);
+        expect(isProcessAlive(first)).toBe(false);
+        expect(isProcessAlive(second)).toBe(false);
+        expect(confirmMock).not.toHaveBeenCalled();
+    }, 10_000);
+
+    it.skipIf(process.platform === "win32")(
+        "asks once about SIGKILLing all survivors and force-kills them on approval",
+        async () => {
+            const compliant = spawnSleeper();
+            const stubborn = spawnSigtermIgnorer();
+            await waitForStart();
+            confirmMock.mockResolvedValue(true);
+
+            const dead = await attemptBatchKill([compliant, stubborn]);
+
+            expect(confirmMock).toHaveBeenCalledTimes(1);
+            expect(dead).toContain(compliant);
+            expect(dead).toContain(stubborn);
+            expect(isProcessAlive(stubborn)).toBe(false);
+        },
+        10_000,
+    );
+
+    it.skipIf(process.platform === "win32")(
+        "leaves survivors running and out of the dead list when escalation is declined",
+        async () => {
+            const compliant = spawnSleeper();
+            const stubborn = spawnSigtermIgnorer();
+            await waitForStart();
+            confirmMock.mockResolvedValue(false);
+
+            const dead = await attemptBatchKill([compliant, stubborn]);
+
+            expect(dead).toEqual([compliant]);
+            expect(isProcessAlive(stubborn)).toBe(true);
+        },
+        10_000,
+    );
+
+    it("reports a pid that no longer exists as an error and excludes it from the dead list", async () => {
+        const dead = await attemptBatchKill([999_999]);
+
+        expect(dead).toEqual([]);
+        expect(vi.mocked(clack.log.error)).toHaveBeenCalledWith(expect.stringContaining("999999"));
+    }, 10_000);
 });
 
 describe("chalk.level forcing (plain-mode no-color guarantee)", () => {
