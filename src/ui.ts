@@ -25,6 +25,10 @@ export interface DisplayOptions {
     // Plain-mode output is meant to be piped into a file or further processing, so it must never
     // truncate - distinct from `verbose`, which also gates whether flags are stripped.
     noTruncate?: boolean;
+    // Interactive rows go through clack's active-row inverse highlight, which mangles dim/gray
+    // into muddy tones. Interactive mode drops those but keeps the TAG's saturated color, which
+    // inverts into a readable colored chip on the highlighted row instead.
+    interactive?: boolean;
 }
 
 const MAX_LIST_COMMAND_LENGTH = 100;
@@ -296,8 +300,8 @@ const colorizeTag = (tag: Tag | null): string => {
 
 // depth > 0 only happens under --all (hideChildProcesses drops these by default); the tree
 // connector makes the parent/child relationship visible.
-const indentCommand = (commandCell: string, depth: number): string =>
-    depth > 0 ? `${"  ".repeat(depth - 1)}${chalk.dim("└─")} ${commandCell}` : commandCell;
+const indentCommand = (commandCell: string, depth: number, interactive = false): string =>
+    depth > 0 ? `${"  ".repeat(depth - 1)}${interactive ? "└─" : chalk.dim("└─")} ${commandCell}` : commandCell;
 
 export const formatListLine = (
     display: DisplayEntry,
@@ -314,7 +318,10 @@ export const formatListLine = (
     const showTag = !(sameAsParent && tag === resolveTag(parent.entry));
     const showProject = !(sameAsParent && location === locationOf(parent));
 
-    const pidCell = padVisible(chalk.dim(String(display.entry.pid)), widths.pid);
+    const pidCell = padVisible(
+        options.interactive ? String(display.entry.pid) : chalk.dim(String(display.entry.pid)),
+        widths.pid,
+    );
     const tagCell = padVisible(showTag ? colorizeTag(tag) : "", widths.tag);
     // The age rides inside the project cell (dimmed suffix) rather than its own column, so the
     // location's truncation budget shrinks by the suffix length to keep rows aligned. It blanks
@@ -323,10 +330,14 @@ export const formatListLine = (
     const ageSuffix = age ? ` (${age})` : "";
     const locationText = truncateProjectPath(location, widths.project - ageSuffix.length);
     const projectCell = padVisible(
-        showProject ? chalk.gray(locationText) + chalk.dim(ageSuffix) : "",
+        showProject
+            ? options.interactive
+                ? locationText + ageSuffix
+                : chalk.gray(locationText) + chalk.dim(ageSuffix)
+            : "",
         widths.project,
     );
-    const commandCell = indentCommand(formatCommandCell(display, options, widths.command), depth);
+    const commandCell = indentCommand(formatCommandCell(display, options, widths.command), depth, options.interactive);
 
     return `${pidCell}  ${tagCell}  ${projectCell}  ${commandCell}`;
 };
@@ -490,7 +501,7 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
         const widths = computeColumnWidths(orderedEntries);
         const autocompleteOptions = nestedEntries.map(({ display, depth, parent }) => ({
             value: display.entry.pid,
-            label: formatListLine(display, widths, options, depth, parent),
+            label: formatListLine(display, widths, { ...options, interactive: true }, depth, parent),
         }));
 
         // autocompleteMultiselect (rather than select) gives a built-in "type to filter" search
@@ -503,7 +514,7 @@ export const runInteractiveList = async (entries: DisplayEntry[], options: Displ
             // with the rows. The footer hint is hardcoded inside @clack/prompts and isn't
             // configurable, so the exit hint (Esc/Ctrl+C, wired up via clack.isCancel below)
             // lives in the message text.
-            message: `Found ${orderedEntries.length} process${orderedEntries.length === 1 ? "" : "es"} (Esc to exit)\n     ${formatHeaderRow(widths)}`,
+            message: `Found ${orderedEntries.length} process${orderedEntries.length === 1 ? "" : "es"} (Esc to exit)\n     ${chalk.cyan(formatHeaderRow(widths))}`,
             placeholder: "Type to filter…",
             options: autocompleteOptions,
         });

@@ -18,6 +18,7 @@ import {
     padVisible,
     printPlainList,
     resolveTag,
+    runInteractiveList,
     visibleLength,
 } from "./ui.js";
 import type { DisplayEntry } from "./ui.js";
@@ -709,6 +710,27 @@ describe("formatListLine", () => {
         expect(line).not.toContain("7m");
         expect(line).not.toContain("~/project");
     });
+
+    it("drops dim/gray in interactive mode but keeps the tag's saturated color", () => {
+        chalk.level = 3;
+        const display: DisplayEntry = {
+            entry: {
+                pid: 42,
+                ppid: 1,
+                name: "node",
+                cmd: "node server.js mcp",
+                startTime: new Date(Date.now() - 65 * 60_000),
+            },
+            source: { cwd: "~/project", launcher: null },
+        };
+        const line = formatListLine(display, widthsFor([display]), { interactive: true });
+
+        expect(line).toContain(chalk.magenta("MCP"));
+        expect(stripAnsi(line)).toContain("~/project (1h 5m)");
+        expect(line).not.toContain("\x1b[2m");
+        expect(line).not.toContain("\x1b[90m");
+        chalk.level = 1;
+    });
 });
 
 describe("groupByProject", () => {
@@ -1104,5 +1126,56 @@ describe("chalk.level forcing (plain-mode no-color guarantee)", () => {
         const line = formatListLine(display, widths);
 
         expect(line).not.toContain("\x1b[");
+    });
+});
+
+describe("runInteractiveList", () => {
+    afterEach(() => {
+        chalk.level = 1;
+        vi.mocked(clack.autocompleteMultiselect).mockReset();
+    });
+
+    it("passes monochrome labels to autocompleteMultiselect so clack's active-row inverse highlights the whole row", async () => {
+        chalk.level = 3;
+        const display: DisplayEntry = {
+            entry: {
+                pid: 42,
+                ppid: 1,
+                name: "node",
+                cmd: "node script.js",
+                startTime: new Date(Date.now() - 65 * 60_000),
+            },
+            source: { cwd: "~/project", launcher: null },
+        };
+        // A selected pid that isn't in the list hits the early outro return, so one prompt
+        // render is all the test needs.
+        vi.mocked(clack.autocompleteMultiselect).mockResolvedValueOnce([999999] as never);
+
+        await runInteractiveList([display]);
+
+        const passed = vi.mocked(clack.autocompleteMultiselect).mock.calls[0]?.[0].options;
+        const options = Array.isArray(passed) ? passed : [];
+        expect(options).toHaveLength(1);
+        expect(stripAnsi(options[0]?.label ?? "")).toContain("~/project (1h 5m)");
+        expect(options[0]?.label).not.toContain("\x1b[");
+    });
+
+    it("keeps the tag color chip in labels and colors the header row in the prompt message", async () => {
+        chalk.level = 3;
+        const display: DisplayEntry = {
+            entry: { pid: 43, ppid: 1, name: "node", cmd: "node server.js mcp" },
+            source: { cwd: "~/project", launcher: null },
+        };
+        vi.mocked(clack.autocompleteMultiselect).mockResolvedValueOnce([999999] as never);
+
+        await runInteractiveList([display]);
+
+        const call = vi.mocked(clack.autocompleteMultiselect).mock.calls[0]?.[0];
+        const options = Array.isArray(call?.options) ? call.options : [];
+        const label = options[0]?.label ?? "";
+        expect(label).toContain(chalk.magenta("MCP"));
+        expect(label).not.toContain("\x1b[2m");
+        expect(label).not.toContain("\x1b[90m");
+        expect(call?.message).toContain("\x1b[36m");
     });
 });
