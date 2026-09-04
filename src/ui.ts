@@ -7,7 +7,7 @@ import {
     collapsePathBinaries,
     relativizeToCwd,
     stripFlags,
-    trimHomeInCommand,
+    trimPathInCommand,
     truncateCommandPath,
     truncateProjectPath,
 } from "./path-trim.js";
@@ -238,13 +238,13 @@ const cleanCommand = (display: DisplayEntry, options: DisplayOptions = {}): stri
     const raw = display.entry.cmd ?? display.entry.name;
     const stripped = raw.replace(CONTROL_CHARACTER_PATTERN, " ").replace(OCTAL_ESCAPE_PATTERN, " ").trim();
 
-    // Must run before trimHome: its match requires a leading "/" or drive letter, so a
+    // Must run before trimPathInCommand: its match requires a leading "/" or drive letter, so a
     // ~-trimmed PATH directory (fnm/nvm/volta shims, ~/.bun/bin, ...) would go uncollapsed.
     const collapsedBinaries = collapsePathBinaries(stripped);
     const collapsedStore = collapsePackageStorePath(collapsedBinaries);
-    const trimmed = trimHomeInCommand(collapsedStore);
-    // relativizeToCwd must run after trimHomeInCommand: SourceInfo.cwd is already ~-trimmed (see
-    // resolveSource), so the command needs to be ~-trimmed too before the two can be compared.
+    const trimmed = trimPathInCommand(collapsedStore);
+    // relativizeToCwd must run after trimPathInCommand: SourceInfo.cwd is already env/~-trimmed
+    // (see resolveSource), so the command needs the same trimming before the two can be compared.
     const relativized = relativizeToCwd(trimmed, display.source.cwd);
     const flagsHandled = options.verbose ? relativized : stripFlags(relativized);
 

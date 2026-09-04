@@ -1,5 +1,5 @@
 import { lookupCwd } from "./cwd-lookup.js";
-import { trimHome } from "./path-trim.js";
+import { trimPath } from "./path-trim.js";
 import { findAncestorLauncher } from "./ppid-walk.js";
 import type { ProcessEntry } from "./types.js";
 
@@ -21,7 +21,7 @@ export const resolveSource = async (
     const ancestor = findAncestorLauncher(entry.pid, snapshot);
 
     return {
-        cwd: cwd ? trimHome(cwd) : null,
+        cwd: cwd ? trimPath(cwd) : null,
         launcher: ancestor ? `${ancestor.name} (pid ${ancestor.pid})` : null,
     };
 };

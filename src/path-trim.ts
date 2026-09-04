@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -15,9 +16,69 @@ export const trimHome = (pathStr: string, home: string = os.homedir()): string =
     return pathStr;
 };
 
+export interface EnvPathMapping {
+    name: string;
+    value: string;
+}
+
+const ABSOLUTE_PATH_PATTERN = /^([a-zA-Z]:\\|\/)/;
+
+// Only single absolute paths to real directories qualify: delimiter-containing values are
+// PATH-style lists, and files/sockets (SHELL, EDITOR, SSH_AUTH_SOCK) would produce misleading
+// $NAMEs. HOME stays mapped to "~" via trimHome, which reads better than "$HOME".
+export const collectEnvPaths = (env: NodeJS.ProcessEnv = process.env): EnvPathMapping[] => {
+    const mappings: EnvPathMapping[] = [];
+
+    for (const [name, rawValue] of Object.entries(env)) {
+        if (name === "HOME" || !rawValue || rawValue.includes(path.delimiter)) {
+            continue;
+        }
+
+        const value = rawValue.replace(/[\\/]+$/, "");
+        if (!ABSOLUTE_PATH_PATTERN.test(value)) {
+            continue;
+        }
+
+        try {
+            if (fs.statSync(value).isDirectory()) {
+                mappings.push({ name, value });
+            }
+        } catch {
+            // Unreadable or missing path: skip the var.
+        }
+    }
+
+    return mappings;
+};
+
+// Env is fixed for the lifetime of a jstop run, so detect once.
+let cachedEnvPaths: EnvPathMapping[] | null = null;
+const getEnvPathMappings = (): EnvPathMapping[] => (cachedEnvPaths ??= collectEnvPaths());
+
+export const trimEnvPaths = (pathStr: string, mappings: EnvPathMapping[] = getEnvPathMappings()): string => {
+    let best: EnvPathMapping | null = null;
+
+    for (const mapping of mappings) {
+        const matches = pathStr === mapping.value || pathStr.startsWith(`${mapping.value}/`);
+        if (matches && (best === null || mapping.value.length > best.value.length)) {
+            best = mapping;
+        }
+    }
+
+    if (best === null) {
+        return pathStr;
+    }
+
+    return `$${best.name}${pathStr.slice(best.value.length)}`;
+};
+
+export const trimPath = (pathStr: string, mappings: EnvPathMapping[] = getEnvPathMappings()): string =>
+    trimHome(trimEnvPaths(pathStr, mappings));
+
 const mapTokens = (cmdStr: string, fn: (token: string) => string): string => cmdStr.split(" ").map(fn).join(" ");
 
-export const trimHomeInCommand = (command: string): string => mapTokens(command, (token) => trimHome(token));
+export const trimPathInCommand = (command: string, mappings: EnvPathMapping[] = getEnvPathMappings()): string =>
+    mapTokens(command, (token) => trimPath(token, mappings));
 
 // The cwd is already shown in the PROJECT column, so a command token living inside it is
 // redundant to spell out in full; collapsed to "." to avoid repeating the path on the same line.
@@ -43,8 +104,6 @@ const BIN_PARENT_TRAVERSAL_PATTERN = /node_modules\/\.bin\/\.\.\//g;
 
 export const collapsePackageStorePath = (pathStr: string): string =>
     pathStr.replace(PNPM_STORE_HASH_PATTERN, "$1").replace(BIN_PARENT_TRAVERSAL_PATTERN, "node_modules/");
-
-const ABSOLUTE_PATH_PATTERN = /^([a-zA-Z]:\\|\/)/;
 
 // A token is "PATH-resolvable" when its directory matches a $PATH entry exactly (the same rule
 // the shell uses); collapsing it to basename mirrors what the user would have typed.

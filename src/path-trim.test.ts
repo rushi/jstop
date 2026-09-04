@@ -4,9 +4,13 @@ import { describe, expect, it } from "vitest";
 import {
     collapsePackageStorePath,
     collapsePathBinaries,
+    collectEnvPaths,
     relativizeToCwd,
     stripFlags,
+    trimEnvPaths,
     trimHome,
+    trimPath,
+    trimPathInCommand,
     truncateCommandPath,
     truncateProjectPath,
 } from "./path-trim.js";
@@ -22,6 +26,83 @@ describe("trimHome", () => {
 
     it("leaves paths outside the home dir untouched", () => {
         expect(trimHome("/opt/homebrew/bin/node", "/Users/rushi")).toBe("/opt/homebrew/bin/node");
+    });
+});
+
+describe("collectEnvPaths", () => {
+    it("keeps env vars whose value is an existing directory", () => {
+        expect(collectEnvPaths({ WORK: os.tmpdir() })).toEqual([{ name: "WORK", value: os.tmpdir() }]);
+    });
+
+    it("drops HOME, delimiter lists, relative paths, files, and missing directories", () => {
+        const env = {
+            HOME: os.tmpdir(),
+            PATH: `/usr/bin${path.delimiter}/bin`,
+            REL: "some/relative/dir",
+            AFILE: path.join(process.cwd(), "package.json"),
+            MISSING: "/definitely/not/a/real/dir-jstop",
+            EMPTY: "",
+        };
+        expect(collectEnvPaths(env)).toEqual([]);
+    });
+
+    it("strips trailing slashes and drops values that strip down to nothing (e.g. /)", () => {
+        expect(collectEnvPaths({ ROOT: "/", WORK: `${os.tmpdir()}/` })).toEqual([{ name: "WORK", value: os.tmpdir() }]);
+    });
+});
+
+describe("trimEnvPaths", () => {
+    const mappings = [
+        { name: "X2", value: "/Users/rushi/work/x2" },
+        { name: "FNM", value: "/Users/rushi/Library/pnpm" },
+    ];
+
+    it("replaces an exact match with $NAME", () => {
+        expect(trimEnvPaths("/Users/rushi/work/x2", mappings)).toBe("$X2");
+    });
+
+    it("replaces a prefix match and keeps the remainder", () => {
+        expect(trimEnvPaths("/Users/rushi/work/x2/checkout/src", mappings)).toBe("$X2/checkout/src");
+    });
+
+    it("requires a path boundary, not just a string prefix", () => {
+        expect(trimEnvPaths("/Users/rushi/work/x2-old", mappings)).toBe("/Users/rushi/work/x2-old");
+    });
+
+    it("prefers the longest matching value regardless of mapping order", () => {
+        const nested = [{ name: "DEEP", value: "/Users/rushi/work/x2/checkout" }, ...mappings];
+        expect(trimEnvPaths("/Users/rushi/work/x2/checkout/src", nested)).toBe("$DEEP/src");
+    });
+
+    it("leaves paths matching nothing untouched", () => {
+        expect(trimEnvPaths("/opt/homebrew/bin/node", mappings)).toBe("/opt/homebrew/bin/node");
+    });
+});
+
+describe("trimPath", () => {
+    const home = os.homedir();
+
+    it("prefers an env var match over the home fallback", () => {
+        const mappings = [{ name: "X2", value: `${home}/work/x2` }];
+        expect(trimPath(`${home}/work/x2/checkout`, mappings)).toBe("$X2/checkout");
+    });
+
+    it("falls back to ~ for other paths inside home", () => {
+        expect(trimPath(`${home}/Sites/project`, [])).toBe("~/Sites/project");
+    });
+});
+
+describe("trimPathInCommand", () => {
+    const mappings = [{ name: "X2", value: "/Users/rushi/work/x2" }];
+
+    it("substitutes env var prefixes per token and still ~-trims home paths", () => {
+        const input = `node /Users/rushi/work/x2/checkout/server.js ${os.homedir()}/other/tool.js`;
+        expect(trimPathInCommand(input, mappings)).toBe("node $X2/checkout/server.js ~/other/tool.js");
+    });
+
+    it("leaves commands with no matching tokens untouched", () => {
+        const input = "node /opt/homebrew/bin/server.js --port 3000";
+        expect(trimPathInCommand(input, mappings)).toBe(input);
     });
 });
 
