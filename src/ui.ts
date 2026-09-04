@@ -1,5 +1,6 @@
 import * as clack from "@clack/prompts";
 import chalk from "chalk";
+import { formatAge } from "./age.js";
 import { detectRuntime, isMcpProcess } from "./classify.js";
 import { forceTerminateProcess, terminateProcess } from "./kill.js";
 import {
@@ -315,8 +316,14 @@ export const formatListLine = (
 
     const pidCell = padVisible(chalk.dim(String(display.entry.pid)), widths.pid);
     const tagCell = padVisible(showTag ? colorizeTag(tag) : "", widths.tag);
+    // The age rides inside the project cell (dimmed suffix) rather than its own column, so the
+    // location's truncation budget shrinks by the suffix length to keep rows aligned. It blanks
+    // together with the project on same-project child rows.
+    const age = formatAge(display.entry.startTime);
+    const ageSuffix = age ? ` (${age})` : "";
+    const locationText = truncateProjectPath(location, widths.project - ageSuffix.length);
     const projectCell = padVisible(
-        showProject ? chalk.gray(truncateProjectPath(location, widths.project)) : "",
+        showProject ? chalk.gray(locationText) + chalk.dim(ageSuffix) : "",
         widths.project,
     );
     const commandCell = indentCommand(formatCommandCell(display, options, widths.command), depth);

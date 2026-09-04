@@ -637,6 +637,78 @@ describe("formatListLine", () => {
         expect(projectColumnStart(shortLine)).toBe(projectColumnStart(longLine));
         chalk.level = 1;
     });
+
+    it("appends the process age to the project cell", () => {
+        const display: DisplayEntry = {
+            entry: {
+                pid: 42,
+                ppid: 1,
+                name: "node",
+                cmd: "node script.js",
+                startTime: new Date(Date.now() - 65 * 60_000),
+            },
+            source: { cwd: "~/project", launcher: null },
+        };
+        const line = formatListLine(display, widthsFor([display]));
+        expect(stripAnsi(line)).toContain("~/project (1h 5m)");
+    });
+
+    it("leaves the project cell untouched when startTime is unknown", () => {
+        const display: DisplayEntry = {
+            entry: { pid: 42, ppid: 1, name: "node", cmd: "node script.js" },
+            source: { cwd: "~/project", launcher: null },
+        };
+        const line = formatListLine(display, widthsFor([display]));
+        expect(stripAnsi(line)).toContain("~/project  ");
+    });
+
+    it("reserves room for the age when truncating a long project path", () => {
+        const cwd = `~/${"a".repeat(30)}/${"b".repeat(30)}/${"c".repeat(30)}/project`;
+        const display: DisplayEntry = {
+            entry: {
+                pid: 42,
+                ppid: 1,
+                name: "node",
+                cmd: "node script.js",
+                startTime: new Date(Date.now() - 5 * 60_000),
+            },
+            source: { cwd, launcher: null },
+        };
+        const widths = widthsFor([display]);
+        const line = formatListLine(display, widths);
+
+        expect(line).toContain("5m");
+        // The age suffix must not push the cell past its column budget: command still starts
+        // at the same offset a row without an age would use.
+        const commandStart = visibleLength(stripAnsi(line).slice(0, stripAnsi(line).indexOf("node script.js")));
+        expect(commandStart).toBe(widths.pid + 2 + widths.tag + 2 + widths.project + 2);
+    });
+
+    it("blanks the age together with the project on a same-project child row", () => {
+        const parent: DisplayEntry = {
+            entry: {
+                pid: 1,
+                ppid: 0,
+                name: "node",
+                cmd: "node parent.js",
+                startTime: new Date(Date.now() - 65 * 60_000),
+            },
+            source: { cwd: "~/project", launcher: null },
+        };
+        const child: DisplayEntry = {
+            entry: {
+                pid: 2,
+                ppid: 1,
+                name: "node",
+                cmd: "node child.js",
+                startTime: new Date(Date.now() - 7 * 60_000),
+            },
+            source: { cwd: "~/project", launcher: null },
+        };
+        const line = formatListLine(child, widthsFor([parent, child]), {}, 1, parent);
+        expect(line).not.toContain("7m");
+        expect(line).not.toContain("~/project");
+    });
 });
 
 describe("groupByProject", () => {
