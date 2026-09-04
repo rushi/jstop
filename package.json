@@ -1,6 +1,6 @@
 {
   "name": "@rushiv/jstop",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "type": "module",
   "private": false,
   "description": "See which node/bun/deno processes are actually running on your machine — filters out Electron/desktop-app noise and shows where each one came from.",
