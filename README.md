@@ -10,7 +10,7 @@ Try it without installing:
 npx jstop
 ```
 
-This opens an interactive, searchable list of every real node/bun/deno process on your machine. Type to filter, pick one to see its full command, working directory, and (best-effort) launching app, with an option to kill it.
+This opens an interactive, searchable list of every real node/bun/deno process on your machine. Type to filter, then mark one or more rows with space/tab and press enter. A single pick shows its full command, working directory, and (best-effort) launching app, with an option to kill it; multiple picks go straight to a batch kill, with one shared SIGKILL escalation prompt for anything that survives SIGTERM.
 
 Verify it works:
 
